@@ -15,9 +15,21 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg
+
+# ---------------------------------------------------------------------------
+# Fase 2 - Registro de segmentacion IF/ID
+# ---------------------------------------------------------------------------
+if_id_reg:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		--top-module if_id_reg \
+		$(RTL_DIR)/core/if_id_reg.sv \
+		$(TB_DIR)/tb_if_id_reg.cpp \
+		-o if_id_reg_sim
+	./$(BUILD_DIR)/if_id_reg_sim
 
 # ---------------------------------------------------------------------------
 # Fase 1 - Datapath monociclo completo: corre fib.s de punta a punta
