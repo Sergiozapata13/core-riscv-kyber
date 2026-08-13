@@ -1,0 +1,16 @@
+# Artefactos de build de Verilator
+sim/obj_dir/
+sim/*.vcd
+
+# Binarios generados por el toolchain RISC-V (se regeneran con make)
+sim/*.elf
+sim/*.hex
+sim/*.bin
+
+# Excepción: los .hex de firmware que SÍ forman parte del proyecto
+# (curados a mano, no artefactos de build de sim/) se mantienen versionados
+!sw/tests/*.hex
+
+# Archivos de sistema
+.DS_Store
+*.swp
