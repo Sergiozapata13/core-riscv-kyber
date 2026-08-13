@@ -15,9 +15,22 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg
+
+# ---------------------------------------------------------------------------
+# Fase 2 - Registro de segmentacion ID/EX
+# ---------------------------------------------------------------------------
+id_ex_reg:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		--top-module id_ex_reg \
+		$(RTL_DIR)/core/alu.sv \
+		$(RTL_DIR)/core/id_ex_reg.sv \
+		$(TB_DIR)/tb_id_ex_reg.cpp \
+		-o id_ex_reg_sim
+	./$(BUILD_DIR)/id_ex_reg_sim
 
 # ---------------------------------------------------------------------------
 # Fase 2 - Registro de segmentacion IF/ID
