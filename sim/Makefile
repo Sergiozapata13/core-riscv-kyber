@@ -15,9 +15,37 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs
+
+# ---------------------------------------------------------------------------
+# Fase 4 - Mariposa Cooley-Tukey (vntt)
+# ---------------------------------------------------------------------------
+butterfly_ct:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		-CFLAGS "-I$(TB_DIR)" \
+		--top-module butterfly_ct \
+		$(RTL_DIR)/vector/barrett_reduce.sv \
+		$(RTL_DIR)/vector/butterfly_ct.sv \
+		$(TB_DIR)/tb_butterfly_ct.cpp \
+		-o butterfly_ct_sim
+	./$(BUILD_DIR)/butterfly_ct_sim
+
+# ---------------------------------------------------------------------------
+# Fase 4 - Mariposa Gentleman-Sande (vintt)
+# ---------------------------------------------------------------------------
+butterfly_gs:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		-CFLAGS "-I$(TB_DIR)" \
+		--top-module butterfly_gs \
+		$(RTL_DIR)/vector/barrett_reduce.sv \
+		$(RTL_DIR)/vector/butterfly_gs.sv \
+		$(TB_DIR)/tb_butterfly_gs.cpp \
+		-o butterfly_gs_sim
+	./$(BUILD_DIR)/butterfly_gs_sim
 
 # ---------------------------------------------------------------------------
 # Fase 4 - Unidad de reduccion modular Barrett (mod q=3329)
