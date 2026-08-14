@@ -15,9 +15,22 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce
+
+# ---------------------------------------------------------------------------
+# Fase 4 - Unidad de reduccion modular Barrett (mod q=3329)
+# ---------------------------------------------------------------------------
+barrett_reduce:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		-CFLAGS "-I$(TB_DIR)" \
+		--top-module barrett_reduce \
+		$(RTL_DIR)/vector/barrett_reduce.sv \
+		$(TB_DIR)/tb_barrett_reduce.cpp \
+		-o barrett_reduce_sim
+	./$(BUILD_DIR)/barrett_reduce_sim
 
 # ---------------------------------------------------------------------------
 # Fase 2 - Datapath pipelineado completo: corre fib.s, compara vs Fase 1
