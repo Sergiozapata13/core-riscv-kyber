@@ -7,11 +7,14 @@
 // el inmediato ya ensamblado, el destino de escritura, y todas las
 // senales de control que control.sv genero para esta instruccion.
 //
-// rs1/rs2 (los NUMEROS de registro, no sus valores) deliberadamente NO
-// se incluyen todavia: no hay ningun consumidor real de esos campos hasta
-// que se diseñe la forwarding/hazard detection unit — se agregan en ese
-// momento, no antes (mismo criterio que se aplico para no anticipar un
-// campo de excepcion/illegal sin consumidor).
+// rs1/rs2 (los NUMEROS de registro, no sus valores) se agregan en este
+// punto del proyecto porque ahora SI hay un consumidor real: la
+// forwarding unit (Fase 2) los necesita para comparar contra rd de
+// ex_mem_reg/mem_wb_reg y decidir de donde forwardear cada operando de
+// la ALU. Antes de que la forwarding unit existiera, se dejaron fuera
+// deliberadamente (mismo criterio que para no anticipar un campo de
+// excepcion/illegal sin consumidor) — este es el mismo criterio aplicado
+// en sentido inverso: agregar el campo apenas aparece quien lo consume.
 //
 // opcode se propaga completo (en vez de descomponerlo en señales mas
 // especificas) porque EX todavia necesita distinguir AUIPC/LUI/JALR para
@@ -44,6 +47,8 @@ module id_ex_reg
     input  logic [31:0]  rs2_data_in,
     input  logic [31:0]  imm_in,
     input  logic [4:0]   rd_in,
+    input  logic [4:0]   rs1_in,
+    input  logic [4:0]   rs2_in,
     input  logic [2:0]   funct3_in,
     input  logic [6:0]   opcode_in,
 
@@ -63,6 +68,8 @@ module id_ex_reg
     output logic [31:0]  rs2_data_out,
     output logic [31:0]  imm_out,
     output logic [4:0]   rd_out,
+    output logic [4:0]   rs1_out,
+    output logic [4:0]   rs2_out,
     output logic [2:0]   funct3_out,
     output logic [6:0]   opcode_out,
 
@@ -92,6 +99,8 @@ module id_ex_reg
             rs2_data_out   <= 32'd0;
             imm_out        <= 32'd0;
             rd_out         <= 5'd0;
+            rs1_out        <= 5'd0;
+            rs2_out        <= 5'd0;
             funct3_out     <= 3'd0;
             opcode_out     <= 7'd0;
         end else if (flush) begin
@@ -116,6 +125,13 @@ module id_ex_reg
             rs2_data_out   <= rs2_data_in;
             imm_out        <= imm_in;
             rd_out         <= rd_in;
+            // rs1/rs2 se fuerzan a x0 en burbuja (valid_in=0): x0 nunca
+            // es destino de escritura real, asi que si la forwarding
+            // unit compara contra estos valores sin chequear 'valid'
+            // primero, la comparacion nunca dispara un forward espurio
+            // — misma logica de doble seguridad que el NOP en if_id_reg.
+            rs1_out        <= valid_in ? rs1_in : 5'd0;
+            rs2_out        <= valid_in ? rs2_in : 5'd0;
             funct3_out     <= funct3_in;
             opcode_out     <= opcode_in;
 

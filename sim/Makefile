@@ -15,9 +15,21 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit
+
+# ---------------------------------------------------------------------------
+# Fase 2 - Forwarding unit: resuelve hazards de datos sin stall
+# ---------------------------------------------------------------------------
+forwarding_unit:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		--top-module forwarding_unit \
+		$(RTL_DIR)/core/forwarding_unit.sv \
+		$(TB_DIR)/tb_forwarding_unit.cpp \
+		-o forwarding_unit_sim
+	./$(BUILD_DIR)/forwarding_unit_sim
 
 # ---------------------------------------------------------------------------
 # Fase 2 - Registro de segmentacion MEM/WB

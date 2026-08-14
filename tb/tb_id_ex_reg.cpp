@@ -43,16 +43,19 @@ static void check_eq(const char* label, uint32_t got, uint32_t expected) {
     }
 }
 
-static void set_all_inputs(Vid_ex_reg* t, uint32_t pc, uint32_t rs1, uint32_t rs2,
-                            uint32_t imm, uint8_t rd, uint8_t funct3, uint8_t opcode,
+static void set_all_inputs(Vid_ex_reg* t, uint32_t pc, uint32_t rs1_data, uint32_t rs2_data,
+                            uint32_t imm, uint8_t rd, uint8_t rs1, uint8_t rs2,
+                            uint8_t funct3, uint8_t opcode,
                             int reg_write, int alu_src, int alu_op, int mem_read,
                             int mem_write, int mem_to_reg, int branch, int jump,
                             int valid) {
     t->pc_in         = pc;
-    t->rs1_data_in   = rs1;
-    t->rs2_data_in   = rs2;
+    t->rs1_data_in   = rs1_data;
+    t->rs2_data_in   = rs2_data;
     t->imm_in        = imm;
     t->rd_in         = rd;
+    t->rs1_in        = rs1;
+    t->rs2_in        = rs2;
     t->funct3_in     = funct3;
     t->opcode_in     = opcode;
     t->reg_write_in  = reg_write;
@@ -74,7 +77,7 @@ int main(int argc, char** argv) {
     top->rst_n = 1;
     top->stall = 0;
     top->flush = 0;
-    set_all_inputs(top, 0x1000, 0x11, 0x22, 0x33, 5, 2, 0x33, 1,1,ALU_ADD,1,1,1,1,1, 1);
+    set_all_inputs(top, 0x1000, 0x11, 0x22, 0x33, 5, /*rs1=*/9, /*rs2=*/10, 2, 0x33, 1,1,ALU_ADD,1,1,1,1,1, 1);
     top->clk = 0;
     top->eval();
 
@@ -86,11 +89,13 @@ int main(int argc, char** argv) {
     check_eq("caso1_reset_mem_write", top->mem_write_out, 0);
     check_eq("caso1_reset_branch", top->branch_out, 0);
     check_eq("caso1_reset_jump", top->jump_out, 0);
+    check_eq("caso1_reset_rs1", top->rs1_out, 0);
+    check_eq("caso1_reset_rs2", top->rs2_out, 0);
 
     top->rst_n = 1;
 
     // ---- Caso 2: avance normal, todos los campos ----
-    set_all_inputs(top, 0x2000, 0xAAAA1111, 0xBBBB2222, 0xCCCC3333, 7, 3, 0x63,
+    set_all_inputs(top, 0x2000, 0xAAAA1111, 0xBBBB2222, 0xCCCC3333, 7, /*rs1=*/12, /*rs2=*/13, 3, 0x63,
                     1, 1, ALU_SUB, 0, 0, 1, 1, 0, 1);
     tick();
     check_eq("caso2_valid",     top->valid_out, 1);
@@ -99,6 +104,8 @@ int main(int argc, char** argv) {
     check_eq("caso2_rs2_data",  top->rs2_data_out, 0xBBBB2222);
     check_eq("caso2_imm",       top->imm_out, 0xCCCC3333);
     check_eq("caso2_rd",        top->rd_out, 7);
+    check_eq("caso2_rs1",       top->rs1_out, 12);
+    check_eq("caso2_rs2",       top->rs2_out, 13);
     check_eq("caso2_funct3",    top->funct3_out, 3);
     check_eq("caso2_opcode",    top->opcode_out, 0x63);
     check_eq("caso2_reg_write", top->reg_write_out, 1);
@@ -109,16 +116,18 @@ int main(int argc, char** argv) {
 
     // ---- Caso 3: stall mantiene el contenido ----
     top->stall = 1;
-    set_all_inputs(top, 0xFFFF, 0, 0, 0, 31, 7, 0x7F, 0,0,ALU_ADD,0,0,0,0,0, 1);
+    set_all_inputs(top, 0xFFFF, 0, 0, 0, 31, /*rs1=*/1, /*rs2=*/2, 7, 0x7F, 0,0,ALU_ADD,0,0,0,0,0, 1);
     tick();
     check_eq("caso3_stall_pc",    top->pc_out, 0x2000);       // el mismo de antes
     check_eq("caso3_stall_rd",    top->rd_out, 7);             // el mismo de antes
+    check_eq("caso3_stall_rs1",   top->rs1_out, 12);           // el mismo de antes
+    check_eq("caso3_stall_rs2",   top->rs2_out, 13);           // el mismo de antes
     check_eq("caso3_stall_valid", top->valid_out, 1);
 
     // ---- Caso 4: flush -> valid=0 y TODAS las señales de control inertes ----
     top->stall = 0;
     top->flush = 1;
-    set_all_inputs(top, 0x5000, 0x1, 0x1, 0x1, 3, 5, 0x23, 1,1,ALU_ADD,1,1,1,1,1, 1);
+    set_all_inputs(top, 0x5000, 0x1, 0x1, 0x1, 3, /*rs1=*/8, /*rs2=*/9, 5, 0x23, 1,1,ALU_ADD,1,1,1,1,1, 1);
     tick();
     check_eq("caso4_flush_valid",     top->valid_out, 0);
     check_eq("caso4_flush_reg_write", top->reg_write_out, 0);
@@ -127,9 +136,10 @@ int main(int argc, char** argv) {
     check_eq("caso4_flush_branch",    top->branch_out, 0);
     check_eq("caso4_flush_jump",      top->jump_out, 0);
 
-    // ---- Caso 5: valid_in=0 (burbuja desde ID) -> señales de control inertes ----
+    // ---- Caso 5: valid_in=0 (burbuja desde ID) -> señales de control inertes,
+    //      y rs1/rs2 forzados a x0 (red de seguridad para la forwarding unit) ----
     top->flush = 0;
-    set_all_inputs(top, 0x6000, 0x1, 0x1, 0x1, 3, 5, 0x23, 1,1,ALU_ADD,1,1,1,1,1, /*valid=*/0);
+    set_all_inputs(top, 0x6000, 0x1, 0x1, 0x1, 3, /*rs1=*/8, /*rs2=*/9, 5, 0x23, 1,1,ALU_ADD,1,1,1,1,1, /*valid=*/0);
     tick();
     check_eq("caso5_valid_in_0_valid_out",     top->valid_out, 0);
     check_eq("caso5_valid_in_0_reg_write",     top->reg_write_out, 0);
@@ -137,6 +147,8 @@ int main(int argc, char** argv) {
     check_eq("caso5_valid_in_0_mem_write",     top->mem_write_out, 0);
     check_eq("caso5_valid_in_0_branch",        top->branch_out, 0);
     check_eq("caso5_valid_in_0_jump",          top->jump_out, 0);
+    check_eq("caso5_valid_in_0_rs1_forzado_x0", top->rs1_out, 0);
+    check_eq("caso5_valid_in_0_rs2_forzado_x0", top->rs2_out, 0);
 
     delete top;
 
