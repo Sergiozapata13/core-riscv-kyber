@@ -1,0 +1,10 @@
+# Dependencias del modelo de referencia (Fase 3)
+#
+# kyber-py es un paquete de terceros (implementacion Python de ML-KEM/Kyber,
+# verificada contra los KAT oficiales del NIST) usado UNICAMENTE para
+# validacion cruzada en test_kyber_ref.py. El modelo de referencia en si
+# (kyber_ref.py, gen_zetas.py) no depende de el en tiempo de uso normal —
+# solo el script de test lo importa, y falla de forma segura (SKIP, no
+# error) si no esta instalado.
+
+kyber-py>=1.2.0
