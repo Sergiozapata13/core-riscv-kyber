@@ -15,9 +15,35 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined
+
+# ---------------------------------------------------------------------------
+# Fase 2 - Datapath pipelineado completo: corre fib.s, compara vs Fase 1
+# ---------------------------------------------------------------------------
+core_top_pipelined:
+	$(VERILATOR) --cc --exe --build --trace \
+		-Wall -Wno-DECLFILENAME \
+		--top-module core_top_pipelined \
+		-GADDR_WIDTH=16 -GINIT_FILE='"../sw/tests/fib.hex"' \
+		$(RTL_DIR)/core/alu.sv \
+		$(RTL_DIR)/core/control.sv \
+		$(RTL_DIR)/core/regfile.sv \
+		$(RTL_DIR)/core/imm_gen.sv \
+		$(RTL_DIR)/core/branch_unit.sv \
+		$(RTL_DIR)/core/imem.sv \
+		$(RTL_DIR)/core/dmem.sv \
+		$(RTL_DIR)/core/if_id_reg.sv \
+		$(RTL_DIR)/core/id_ex_reg.sv \
+		$(RTL_DIR)/core/ex_mem_reg.sv \
+		$(RTL_DIR)/core/mem_wb_reg.sv \
+		$(RTL_DIR)/core/forwarding_unit.sv \
+		$(RTL_DIR)/core/hazard_detection_unit.sv \
+		$(RTL_DIR)/core/core_top_pipelined.sv \
+		$(TB_DIR)/tb_core_top_pipelined.cpp \
+		-o core_top_pipelined_sim
+	./$(BUILD_DIR)/core_top_pipelined_sim
 
 # ---------------------------------------------------------------------------
 # Fase 2 - Hazard detection unit: detecta load-use hazard, genera stalls

@@ -185,3 +185,107 @@ corriendo fuera de control.
 Los criterios de verificación de la Fase 1 (suite dirigida por módulo +
 programa no trivial end-to-end) pasan de forma reproducible. Entorno listo
 para arrancar la Fase 2 (segmentación a pipeline de 5 etapas).
+
+## Fase 2 — Segmentación a pipeline de 5 etapas (cierre)
+
+### Módulos implementados
+
+| Módulo | Archivo | Tests |
+|---|---|---|
+| Registro IF/ID | `rtl/core/if_id_reg.sv` | 14 casos |
+| Registro ID/EX | `rtl/core/id_ex_reg.sv` | 34 casos |
+| Registro EX/MEM | `rtl/core/ex_mem_reg.sv` | 21 casos |
+| Registro MEM/WB | `rtl/core/mem_wb_reg.sv` | 15 casos |
+| Forwarding unit | `rtl/core/forwarding_unit.sv` | 9 casos |
+| Hazard detection unit | `rtl/core/hazard_detection_unit.sv` | 8 casos |
+| **Datapath pipelineado completo** | `rtl/core/core_top_pipelined.sv` | Fibonacci — resultados idénticos a Fase 1 |
+
+### Política de burbuja: valid explícito + NOP/inerte como red de seguridad
+
+Cada registro de segmentación combina dos mecanismos: un bit `valid`
+explícito (que la lógica de control/forwarding consulta) y, además, fuerza
+las señales que importan a un estado inerte cuando `valid=0` (NOP real en
+`if_id_reg`; `reg_write`/`mem_read`/`mem_write`/`branch`/`jump`
+forzados a 0 en los registros posteriores, que no llevan una `instr` cruda
+para reinyectar). Doble seguridad: si algo en el datapath no consultara
+`valid` correctamente, la burbuja de todas formas no puede afectar estado
+arquitectural. El mismo criterio se aplicó a `rs1`/`rs2` en `id_ex_reg`
+(forzados a `x0` en burbuja), para que la forwarding unit nunca dispare un
+forward espurio contra una burbuja.
+
+### Prioridad flush > stall
+
+En todos los registros de segmentación, si `flush` y `stall` están
+activos el mismo ciclo, `flush` tiene prioridad (invalidar es más
+"fuerte" que mantener). Verificado explícitamente en `if_id_reg`.
+
+### Forwarding: prioridad EX/MEM sobre MEM/WB
+
+Cuando ambas fuentes de forwarding (EX/MEM y MEM/WB) escriben al mismo
+registro que la instrucción en EX necesita, EX/MEM gana — es el resultado
+más reciente. Caso clásico: `add x1,.. / add x1,.. / usa x1`. Verificado
+explícitamente en `tb_forwarding_unit.cpp` (caso 5). `x0` nunca se
+forwardea desde ninguna fuente, aunque `reg_write` esté activo.
+
+### Load-use hazard: el único caso que el forwarding no resuelve
+
+```
+lw   x1, 0(x2)     // x1 recién existe al FINAL de MEM
+add  x3, x1, x4    // necesita x1 en su propio EX, un ciclo antes
+```
+
+No hay forwarding posible hacia atrás en el tiempo. `hazard_detection_unit`
+detecta la condición (`id_ex_reg.mem_read && id_ex_reg.rd` coincide con
+`rs1`/`rs2` de la instrucción en ID) y genera un stall de 1 ciclo:
+`pc_stall`, `if_id_stall`, `id_ex_flush` — todo lo cual re-decodifica la
+instrucción dependiente un ciclo más tarde, cuando el forwarding EX/MEM→EX
+ya puede alcanzar el dato.
+
+### Política de flush ante branch/jump: 2 ciclos, resueltos en EX
+
+El branch/jump se resuelve en EX (`branch_unit` + cálculo de target), no
+en ID. Para ese momento el pipeline ya fetcheó (IF) y decodificó (ID) dos
+instrucciones de más asumiendo flujo secuencial. Cuando `branch_taken` o
+`jump` resultan verdaderos en EX: `if_id_reg` e `id_ex_reg` reciben
+`flush` (dos ciclos de burbuja), y `pc_next` toma el target calculado en
+vez de `pc_plus4`.
+
+**Consecuencia observable, documentada porque no es intuitiva**: en el
+loop `halt: j halt` del firmware de prueba, el PC del pipeline **nunca
+converge a un único valor fijo** como sí hacía en el monociclo (Fase 1)
+— en cambio, cicla establemente entre `0x60/0x64/0x68`, porque cada
+iteración del salto incondicional alcanza a fetchear especulativamente
+las 2 instrucciones siguientes antes de que el flush las invalide. Esto
+es el comportamiento **correcto** del pipeline, no un bug — el testbench
+de cierre (`tb_core_top_pipelined.cpp`) lo detecta explícitamente como
+criterio de "programa terminado" (PC confinado a ese rango de 3 palabras),
+en vez de asumir un valor único como en el criterio de la Fase 1.
+
+### Decisión de diseño: bypass del regfile ahora SÍ habilitado
+
+A diferencia de `core_top.sv` (Fase 1, monociclo, `ENABLE_BYPASS(1'b0)`),
+`core_top_pipelined.sv` instancia el regfile con `ENABLE_BYPASS(1'b1)`.
+En pipeline, WB de una instrucción e ID de OTRA instrucción distinta
+ocurren en el mismo ciclo físico — el bypass ahí es necesario y correcto
+(sin él, ID leería un valor stale para una dependencia RAW de 1 ciclo),
+no el ciclo combinacional espurio que se daba en monociclo.
+
+### Verificación de no regresión: mismo firmware, mismos resultados
+
+`tb_core_top_pipelined.cpp` corre el **mismo** `fib.hex` usado para
+verificar el monociclo en la Fase 1, y compara contra los mismos 10
+valores esperados y el mismo patrón de status — la comparación más
+directa posible de que la segmentación no alteró el comportamiento
+arquitectural del programa.
+
+**Comando:**
+```bash
+cd sim && make core_top_pipelined
+```
+
+### Estado de Fase 2
+
+Los criterios de verificación de la Fase 2 (cada componente aislado +
+programa completo con resultados idénticos al monociclo) pasan de forma
+reproducible. Entorno listo para arrancar la Fase 3 (diseño de la ISA
+vectorial custom).
