@@ -15,9 +15,21 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file
+
+# ---------------------------------------------------------------------------
+# Fase 4 - Banco de registros vectorial (v0-v3, 256 coef de 16b c/u)
+# ---------------------------------------------------------------------------
+vreg_file:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		--top-module vreg_file \
+		$(RTL_DIR)/vector/vreg_file.sv \
+		$(TB_DIR)/tb_vreg_file.cpp \
+		-o vreg_file_sim
+	./$(BUILD_DIR)/vreg_file_sim
 
 # ---------------------------------------------------------------------------
 # Fase 4 - Mariposa Cooley-Tukey (vntt)
