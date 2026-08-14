@@ -14,3 +14,7 @@ sim/*.bin
 # Archivos de sistema
 .DS_Store
 *.swp
+
+# Artefactos de Python (modelo de referencia)
+__pycache__/
+*.pyc
