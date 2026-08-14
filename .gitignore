@@ -11,10 +11,10 @@ sim/*.bin
 # (curados a mano, no artefactos de build de sim/) se mantienen versionados
 !sw/tests/*.hex
 
-# Archivos de sistema
-.DS_Store
-*.swp
-
 # Artefactos de Python (modelo de referencia)
 __pycache__/
 *.pyc
+
+# Archivos de sistema
+.DS_Store
+*.swp
