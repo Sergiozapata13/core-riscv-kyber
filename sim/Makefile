@@ -15,9 +15,21 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit
+
+# ---------------------------------------------------------------------------
+# Fase 2 - Hazard detection unit: detecta load-use hazard, genera stalls
+# ---------------------------------------------------------------------------
+hazard_detection_unit:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		--top-module hazard_detection_unit \
+		$(RTL_DIR)/core/hazard_detection_unit.sv \
+		$(TB_DIR)/tb_hazard_detection_unit.cpp \
+		-o hazard_detection_unit_sim
+	./$(BUILD_DIR)/hazard_detection_unit_sim
 
 # ---------------------------------------------------------------------------
 # Fase 2 - Forwarding unit: resuelve hazards de datos sin stall
