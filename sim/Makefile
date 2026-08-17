@@ -15,9 +15,40 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine
+
+# ---------------------------------------------------------------------------
+# Fase 4 - Motor addsub completo (vadd/vsub, polinomio completo)
+# ---------------------------------------------------------------------------
+addsub_engine:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		-CFLAGS "-I$(TB_DIR)" \
+		--top-module addsub_engine_top \
+		$(RTL_DIR)/vector/barrett_reduce.sv \
+		$(RTL_DIR)/vector/poly_addsub.sv \
+		$(RTL_DIR)/vector/vreg_file.sv \
+		$(RTL_DIR)/vector/addsub_engine.sv \
+		$(RTL_DIR)/vector/addsub_engine_top.sv \
+		$(TB_DIR)/tb_addsub_engine.cpp \
+		-o addsub_engine_sim
+	./$(BUILD_DIR)/addsub_engine_sim
+
+# ---------------------------------------------------------------------------
+# Fase 4 - Suma/resta de coeficientes (vadd/vsub)
+# ---------------------------------------------------------------------------
+poly_addsub:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		-CFLAGS "-I$(TB_DIR)" \
+		--top-module poly_addsub \
+		$(RTL_DIR)/vector/barrett_reduce.sv \
+		$(RTL_DIR)/vector/poly_addsub.sv \
+		$(TB_DIR)/tb_poly_addsub.cpp \
+		-o poly_addsub_sim
+	./$(BUILD_DIR)/poly_addsub_sim
 
 # ---------------------------------------------------------------------------
 # Fase 4 - Motor vpmul completo (multiplicacion punto a punto, dominio NTT)
