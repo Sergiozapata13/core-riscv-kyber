@@ -15,9 +15,41 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine
+
+# ---------------------------------------------------------------------------
+# Fase 4 - Motor vpmul completo (multiplicacion punto a punto, dominio NTT)
+# ---------------------------------------------------------------------------
+vpmul_engine:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		-CFLAGS "-I$(TB_DIR)" \
+		--top-module vpmul_engine_top \
+		$(RTL_DIR)/vector/barrett_reduce.sv \
+		$(RTL_DIR)/vector/base_case_mul.sv \
+		$(RTL_DIR)/vector/vreg_file.sv \
+		$(RTL_DIR)/vector/twiddle_rom.sv \
+		$(RTL_DIR)/vector/vpmul_engine.sv \
+		$(RTL_DIR)/vector/vpmul_engine_top.sv \
+		$(TB_DIR)/tb_vpmul_engine.cpp \
+		-o vpmul_engine_sim
+	./$(BUILD_DIR)/vpmul_engine_sim
+
+# ---------------------------------------------------------------------------
+# Fase 4 - Multiplicacion de base case (grado 1), usada dentro de vpmul
+# ---------------------------------------------------------------------------
+base_case_mul:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		-CFLAGS "-I$(TB_DIR)" \
+		--top-module base_case_mul \
+		$(RTL_DIR)/vector/barrett_reduce.sv \
+		$(RTL_DIR)/vector/base_case_mul.sv \
+		$(TB_DIR)/tb_base_case_mul.cpp \
+		-o base_case_mul_sim
+	./$(BUILD_DIR)/base_case_mul_sim
 
 # ---------------------------------------------------------------------------
 # Fase 4 - Motor NTT/INTT completo (vntt/vintt, 7 niveles x 128 mariposas)
