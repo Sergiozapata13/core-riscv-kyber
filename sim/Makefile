@@ -15,9 +15,34 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit
+
+# ---------------------------------------------------------------------------
+# Fase 4 - Unidad vectorial completa (integracion de los 5 motores)
+# ---------------------------------------------------------------------------
+vector_unit:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		-CFLAGS "-I$(TB_DIR)" \
+		--top-module vector_unit \
+		$(RTL_DIR)/vector/barrett_reduce.sv \
+		$(RTL_DIR)/vector/butterfly_ct.sv \
+		$(RTL_DIR)/vector/butterfly_gs.sv \
+		$(RTL_DIR)/vector/base_case_mul.sv \
+		$(RTL_DIR)/vector/poly_addsub.sv \
+		$(RTL_DIR)/vector/vreg_file.sv \
+		$(RTL_DIR)/vector/twiddle_rom.sv \
+		$(RTL_DIR)/vector/ntt_engine.sv \
+		$(RTL_DIR)/vector/vpmul_engine.sv \
+		$(RTL_DIR)/vector/addsub_engine.sv \
+		$(RTL_DIR)/vector/barrett_engine.sv \
+		$(RTL_DIR)/vector/vload_vstore_engine.sv \
+		$(RTL_DIR)/vector/vector_unit.sv \
+		$(TB_DIR)/tb_vector_unit.cpp \
+		-o vector_unit_sim
+	./$(BUILD_DIR)/vector_unit_sim
 
 # ---------------------------------------------------------------------------
 # Fase 4 - Motor vload/vstore completo (memoria <-> banco vectorial)
