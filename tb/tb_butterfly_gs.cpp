@@ -16,17 +16,17 @@ static Vbutterfly_gs* top;
 static int errors = 0;
 static int n_checks = 0;
 
-static void check(int a, int b, int zeta_inv, int expected_a_out, int expected_b_out) {
+static void check(int a, int b, int zeta, int expected_a_out, int expected_b_out) {
     n_checks++;
-    top->a        = a;
-    top->b        = b;
-    top->zeta_inv = zeta_inv;
+    top->a    = a;
+    top->b    = b;
+    top->zeta = zeta;
     top->eval();
 
     bool ok = ((int)top->a_out == expected_a_out) && ((int)top->b_out == expected_b_out);
     if (!ok) {
-        std::printf("FAIL: butterfly_gs(a=%d, b=%d, zeta_inv=%d) = (a_out=%u, b_out=%u), esperado (a_out=%d, b_out=%d)\n",
-                     a, b, zeta_inv, top->a_out, top->b_out, expected_a_out, expected_b_out);
+        std::printf("FAIL: butterfly_gs(a=%d, b=%d, zeta=%d) = (a_out=%u, b_out=%u), esperado (a_out=%d, b_out=%d)\n",
+                     a, b, zeta, top->a_out, top->b_out, expected_a_out, expected_b_out);
         errors++;
     }
 }

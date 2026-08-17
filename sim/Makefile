@@ -15,9 +15,28 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine
+
+# ---------------------------------------------------------------------------
+# Fase 4 - Motor NTT/INTT completo (vntt/vintt, 7 niveles x 128 mariposas)
+# ---------------------------------------------------------------------------
+ntt_engine:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		-CFLAGS "-I$(TB_DIR)" \
+		--top-module ntt_engine_top \
+		$(RTL_DIR)/vector/barrett_reduce.sv \
+		$(RTL_DIR)/vector/butterfly_ct.sv \
+		$(RTL_DIR)/vector/butterfly_gs.sv \
+		$(RTL_DIR)/vector/vreg_file.sv \
+		$(RTL_DIR)/vector/twiddle_rom.sv \
+		$(RTL_DIR)/vector/ntt_engine.sv \
+		$(RTL_DIR)/vector/ntt_engine_top.sv \
+		$(TB_DIR)/tb_ntt_engine.cpp \
+		-o ntt_engine_sim
+	./$(BUILD_DIR)/ntt_engine_sim
 
 # ---------------------------------------------------------------------------
 # Fase 4 - Banco de registros vectorial (v0-v3, 256 coef de 16b c/u)

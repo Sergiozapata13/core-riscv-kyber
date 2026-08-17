@@ -30,11 +30,18 @@ def ct_butterfly(a, b, zeta):
     return a_out, b_out
 
 
-def gs_butterfly(a, b, zeta_inv):
-    """Gentleman-Sande — isa_vectorial_kyber.docx seccion 6.3."""
+def gs_butterfly(a, b, zeta):
+    """
+    Gentleman-Sande — CORREGIDO tras verificacion contra el motor NTT
+    completo (Fase 4): la implementacion real de Kyber usa (1) el
+    twiddle factor DIRECTO (mismo ZETAS[k] que Cooley-Tukey, no su
+    inverso), y (2) resta con signo (b - a), no (a - b) — a diferencia
+    de lo que documentaba originalmente isa_vectorial_kyber.docx
+    seccion 6.3. Ver butterfly_gs.sv para el detalle completo.
+    """
     a_out = barrett_reduce(a + b)
-    diff = barrett_reduce(a - b)
-    b_out = barrett_reduce(zeta_inv * diff)
+    diff = barrett_reduce(b - a)
+    b_out = barrett_reduce(zeta * diff)
     return a_out, b_out
 
 
@@ -55,12 +62,11 @@ def gen_ct_cases():
 def gen_gs_cases():
     cases = []
     cases += [(0, 0, 0), (0, 0, 1), (Q - 1, Q - 1, Q - 1), (0, Q - 1, 1), (Q - 1, 0, 1)]
-    zeta_invs = [pow(z, Q - 2, Q) for z in ZETAS]
     for _ in range(N_RANDOM):
         a = random.randint(0, Q - 1)
         b = random.randint(0, Q - 1)
-        zeta_inv = random.choice(zeta_invs)
-        cases.append((a, b, zeta_inv))
+        zeta = random.choice(ZETAS)
+        cases.append((a, b, zeta))
     return cases
 
 
@@ -79,11 +85,12 @@ def main():
     elif mode == "gs":
         cases = gen_gs_cases()
         print(f"// Generado por models/gen_butterfly_testvectors.py gs — {len(cases)} casos")
-        print("// derivados de kyber_ref.barrett_reduce() aplicando la formula GS (seccion 6.3).")
+        print("// derivados de kyber_ref.barrett_reduce() aplicando la formula GS")
+        print("// CORREGIDA (zeta directo, no inverso — ver butterfly_gs.sv).")
         print("// NO EDITAR A MANO.")
-        for a, b, zeta_inv in cases:
-            a_out, b_out = gs_butterfly(a, b, zeta_inv)
-            print(f"    check({a}, {b}, {zeta_inv}, {a_out}, {b_out});")
+        for a, b, zeta in cases:
+            a_out, b_out = gs_butterfly(a, b, zeta)
+            print(f"    check({a}, {b}, {zeta}, {a_out}, {b_out});")
     else:
         print("Uso: gen_butterfly_testvectors.py [ct|gs]", file=sys.stderr)
         sys.exit(1)
