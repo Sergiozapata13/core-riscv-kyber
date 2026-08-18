@@ -15,9 +15,21 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit vector_control clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit vector_control
+
+# ---------------------------------------------------------------------------
+# Fase 4 - Unidad de control vectorial (decodificador, vive en EX)
+# ---------------------------------------------------------------------------
+vector_control:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		--top-module vector_control \
+		$(RTL_DIR)/vector/vector_control.sv \
+		$(TB_DIR)/tb_vector_control.cpp \
+		-o vector_control_sim
+	./$(BUILD_DIR)/vector_control_sim
 
 # ---------------------------------------------------------------------------
 # Fase 4 - Unidad vectorial completa (integracion de los 5 motores)
