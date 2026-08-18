@@ -807,6 +807,45 @@ de 840 bytes) ni de muestrear ruido nuevo.
 cd sim && make k_pke_decrypt_firmware
 ```
 
+### ML-KEM-512 completo (keygen + encaps + decaps) — hito de la Fase 5
+
+`sw/lib/ml_kem.c` — wrappers delgados sobre K-PKE que agregan lo que
+falta para el protocolo KEM completo: `dk = dk_pke || ek || H(ek) || z`
+en keygen, `(K,r) = G(m||H(ek))` en encaps, y el mecanismo de rechazo
+implícito en decaps (`K_bar = J(z||c)`, devuelto en vez de `K` real si
+el ciphertext re-encriptado no coincide con el original). Replica
+exactamente `kyber_ref.ml_kem_keygen()`/`ml_kem_encaps()`/
+`ml_kem_decaps()`.
+
+Validado nativo con 6 verificaciones (3264 bytes en total): `keygen`
+(ek=800B, dk=1632B), `encaps` (K=32B, c=768B), `decaps` normal, y
+`decaps` con rechazo implícito (ciphertext corrompido) — las 6
+correctas en el primer intento.
+
+**Ejecutado end-to-end en el core real**: un solo firmware corre
+`keygen → encaps → decaps (normal) → decaps (rechazo implícito)` de
+punta a punta — el firmware más pesado del proyecto (encadena
+efectivamente 2 `K-PKE.KeyGen`-equivalentes y 2 `K-PKE.Encrypt`, ya que
+`decaps` re-ejecuta `encrypt` internamente para la verificación de
+rechazo implícito). Terminó en **48,105,637 ciclos** (~15 segundos
+reales de simulación), con ambas claves compartidas recuperadas
+(`K_decaps_normal` y `K_decaps_rechazo_implicito`) coincidiendo
+exactamente, byte a byte, con los valores ya validados en Python.
+
+Este resultado cierra el objetivo central de la Fase 5: **el protocolo
+ML-KEM-512 completo, criptográficamente correcto y verificado en cada
+capa (Python vs. `kyber-py`, C nativo vs. Python, C en el core real vs.
+C nativo), corriendo de punta a punta en el core RISC-V diseñado en
+este proyecto** — sin instrucciones vectoriales todavía (esta es la
+versión de referencia, escalar pura). El siguiente paso natural es
+construir la versión acelerada (usando las 8 instrucciones vectoriales
+de la Fase 4) y medir el speedup real entre ambas.
+
+**Comandos:**
+```bash
+cd sim && make ml_kem_firmware
+```
+
 ### SampleNTT (muestreo por rechazo, generación de la matriz A)
 
 `sw/lib/sample_ntt.c` — Algorithm 1 de FIPS 203 ("Parse"): consume
