@@ -56,6 +56,8 @@ module core_top_pipelined
     // Señales de control global del pipeline (stall/flush)
     // =====================================================================
     logic pc_stall, if_id_stall, id_ex_flush_hazard;
+    logic hazard_pc_stall, hazard_if_id_stall;
+    logic vector_stall;
     logic branch_or_jump_taken;
     logic if_id_flush, id_ex_flush;
 
@@ -175,8 +177,8 @@ module core_top_pipelined
         .id_ex_rd       (idex_rd),
         .id_rs1         (id_rs1),
         .id_rs2         (id_rs2),
-        .pc_stall       (pc_stall),
-        .if_id_stall    (if_id_stall),
+        .pc_stall       (hazard_pc_stall),
+        .if_id_stall    (hazard_if_id_stall),
         .id_ex_flush    (id_ex_flush_hazard)
     );
 
@@ -197,7 +199,7 @@ module core_top_pipelined
     id_ex_reg u_id_ex_reg (
         .clk            (clk),
         .rst_n          (rst_n),
-        .stall          (1'b0),      // ID/EX nunca hace stall directo — solo flush
+        .stall          (vector_stall),  // Fase 4: mantiene la instruccion vectorial en EX mientras no logra despachar
         .flush          (id_ex_flush),
         .valid_in       (if_id_valid),
         .pc_in          (if_id_pc),
@@ -323,6 +325,131 @@ module core_top_pipelined
     end
 
     // =====================================================================
+    // EX — unidad vectorial (Fase 4, integracion final)
+    // =====================================================================
+    // Decodifica y despacha instrucciones vectoriales (opcode custom-0)
+    // desde EX, reusando idex_opcode/funct3/rs1/rs2/rd y ex_rs1_fwd que
+    // el pipeline escalar ya calcula — ver discusion de diseño, Fase 4:
+    // vector_control vive en EX porque toda la informacion que necesita
+    // (instruccion decodificada + direccion escalar ya forwardeada) ya
+    // esta disponible ahi, sin necesitar decodificar de nuevo en ID ni
+    // agregar campos a id_ex_reg.
+    logic         is_vector_instr, vec_start;
+    logic  [2:0]  vec_funct3;
+    logic  [1:0]  vec_vreg_rs1, vec_vreg_rs2, vec_vreg_rd;
+    logic [31:0]  vec_scalar_addr;
+    logic         vector_unit_busy, vector_done;
+
+    vector_control u_vector_control (
+        .idex_valid        (idex_valid),
+        .idex_opcode       (idex_opcode),
+        .idex_funct3       (idex_funct3),
+        .idex_rs1          (idex_rs1),
+        .idex_rs2          (idex_rs2),
+        .idex_rd           (idex_rd),
+        .ex_rs1_fwd        (ex_rs1_fwd),
+        .vector_unit_busy  (vector_unit_busy),
+        .is_vector_instr   (is_vector_instr),
+        .vec_start         (vec_start),
+        .vec_funct3        (vec_funct3),
+        .vec_vreg_rs1      (vec_vreg_rs1),
+        .vec_vreg_rs2      (vec_vreg_rs2),
+        .vec_vreg_rd       (vec_vreg_rd),
+        .vec_scalar_addr   (vec_scalar_addr)
+    );
+
+    // Stall estructural: mientras haya una instruccion vectorial en EX
+    // que todavia no logro despachar (vector_unit ocupada con una
+    // operacion anterior), el pipeline entero se congela — ver
+    // discusion de diseño, Fase 4. En el ciclo en que vec_start
+    // efectivamente dispara, vector_unit_busy todavia refleja el valor
+    // REGISTRADO del ciclo anterior (0), asi que vector_stall es 0 ese
+    // mismo ciclo — la instruccion recien despachada avanza normalmente
+    // hacia MEM/WB (donde no tiene efecto escalar, ya que control.sv
+    // trata custom-0 como opcode inerte), y el pipeline no queda
+    // congelado de mas.
+    assign vector_stall = is_vector_instr && vector_unit_busy;
+
+    // Señales de stall combinadas: hazard de load-use (Fase 2) O stall
+    // estructural vectorial (Fase 4) — ver declaracion de pc_stall/
+    // if_id_stall al inicio del modulo, usadas por PC e if_id_reg.
+    assign pc_stall    = hazard_pc_stall    || vector_stall;
+    assign if_id_stall = hazard_if_id_stall || vector_stall;
+
+    // Interfaz hacia dmem (puerto 2, dedicado a vector_unit — ver
+    // dmem.sv, extendido en la Fase 4 justamente para esto).
+    logic [ADDR_WIDTH-1:0] vec_dmem_addr;
+    logic [31:0]            vec_dmem_wdata;
+    logic                   vec_dmem_mem_read, vec_dmem_mem_write;
+    logic [2:0]             vec_dmem_funct3;
+    logic [31:0]            vec_dmem_rdata;
+
+    vector_unit u_vector_unit (
+        .clk             (clk),
+        .rst_n           (rst_n),
+        .start           (vec_start),
+        .funct3          (vec_funct3),
+        .vreg_rs1        (vec_vreg_rs1),
+        .vreg_rs2        (vec_vreg_rs2),
+        .vreg_rd         (vec_vreg_rd),
+        .scalar_addr     (vec_scalar_addr),
+        .busy            (vector_unit_busy),
+        .done            (vector_done),
+        .dmem_addr       (vec_dmem_addr),
+        .dmem_wdata      (vec_dmem_wdata),
+        .dmem_mem_read   (vec_dmem_mem_read),
+        .dmem_mem_write  (vec_dmem_mem_write),
+        .dmem_funct3     (vec_dmem_funct3),
+        .dmem_rdata      (vec_dmem_rdata)
+    );
+
+    // Scoreboard vectorial (Apendice A.4): marca ocupado el registro
+    // destino al despachar (solo para operaciones que ESCRIBEN un
+    // registro vectorial — vstore no escribe ninguno, su campo rd es el
+    // ORIGEN, ver isa_vectorial_kyber.docx seccion 2.3), y lo libera
+    // cuando vector_unit señaliza 'done'.
+    //
+    // 'dispatched_vreg_rd' latchea el registro destino EN EL MOMENTO del
+    // despacho, para saber cual liberar cuando 'done' llegue potencialmente
+    // cientos de ciclos despues — para ese entonces, vec_vreg_rd ya
+    // refleja una instruccion distinta (la que este en EX en ese momento),
+    // asi que no se puede usar directamente para el clear.
+    localparam logic [2:0] VEC_FUNCT3_VSTORE = 3'b001;
+
+    logic [1:0] dispatched_vreg_rd;
+
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            dispatched_vreg_rd <= 2'd0;
+        end else if (vec_start) begin
+            dispatched_vreg_rd <= vec_vreg_rd;
+        end
+    end
+
+    logic scoreboard_set;
+    // verilator lint_off UNUSEDSIGNAL
+    // vector_scoreboard_busy no tiene consumidor interno: dado el
+    // gateo de recurso unico (vector_stall ya cubre la condicion de
+    // stall real, ver nota de diseño en vector_scoreboard.sv), esta
+    // señal existe para dar visibilidad en waveforms/documentacion
+    // (Fase 6) de que registro esta ocupado y por que, no para
+    // gobernar logica adicional del datapath.
+    logic [3:0] vector_scoreboard_busy;
+    // verilator lint_on UNUSEDSIGNAL
+
+    assign scoreboard_set = vec_start && (vec_funct3 != VEC_FUNCT3_VSTORE);
+
+    vector_scoreboard u_vector_scoreboard (
+        .clk         (clk),
+        .rst_n       (rst_n),
+        .set_pulse   (scoreboard_set),
+        .set_vreg    (vec_vreg_rd),
+        .clear       (vector_done),
+        .clear_vreg  (dispatched_vreg_rd),
+        .busy        (vector_scoreboard_busy)
+    );
+
+    // =====================================================================
     // EX/MEM
     // =====================================================================
     logic         exmem_valid;
@@ -336,7 +463,7 @@ module core_top_pipelined
         .clk            (clk),
         .rst_n          (rst_n),
         .stall          (1'b0),
-        .flush          (1'b0),   // EX ya resolvio el branch; nada mas flushea desde aca
+        .flush          (vector_stall),   // Fase 4: burbuja mientras la instruccion vectorial en EX no logra despachar
         .valid_in       (idex_valid),
         .alu_result_in  (ex_alu_result),
         .rs2_data_in    (ex_rs2_fwd),
@@ -366,8 +493,6 @@ module core_top_pipelined
     // =====================================================================
     logic [31:0] mem_rdata;
 
-    logic [31:0] dmem_rdata2_unused;
-
     dmem #(
         .ADDR_WIDTH(ADDR_WIDTH)
     ) u_dmem (
@@ -378,15 +503,16 @@ module core_top_pipelined
         .mem_write  (exmem_mem_write),
         .funct3     (exmem_funct3),
         .rdata      (mem_rdata),
-        // Puerto 2 (Fase 4, vector_unit): se conecta en el bloque de
-        // integracion final; por ahora inerte para no romper la
-        // verificacion existente de esta fase (fib.s).
-        .addr2      ({ADDR_WIDTH{1'b0}}),
-        .wdata2     (32'd0),
-        .mem_read2  (1'b0),
-        .mem_write2 (1'b0),
-        .funct3_2   (3'd0),
-        .rdata2     (dmem_rdata2_unused)
+        // Puerto 2 (Fase 4): dedicado a vector_unit (vload/vstore),
+        // independiente del puerto 1 que usa la etapa MEM del pipeline
+        // escalar — ver dmem.sv para la justificacion de por que se
+        // agrego un segundo puerto en vez de arbitrar uno solo.
+        .addr2      (vec_dmem_addr),
+        .wdata2     (vec_dmem_wdata),
+        .mem_read2  (vec_dmem_mem_read),
+        .mem_write2 (vec_dmem_mem_write),
+        .funct3_2   (vec_dmem_funct3),
+        .rdata2     (vec_dmem_rdata)
     );
 
     // =====================================================================
