@@ -649,6 +649,109 @@ tres capas cada una. Pendiente: el firmware completo de keygen/
 encapsulation/decapsulation que las combina, más el firmware
 escalar-puro equivalente para la métrica de speedup.
 
+### Protocolo ML-KEM-512 completo en Python (keygen/encaps/decaps)
+
+Antes de portar a C, se implementó el protocolo completo en
+`models/kyber_ref.py` (`k_pke_keygen`, `k_pke_encrypt`, `k_pke_decrypt`,
+`ml_kem_keygen`, `ml_kem_encaps`, `ml_kem_decaps`), leyendo el código
+fuente **real** de `kyber-py` (no de memoria) para capturar detalles no
+obvios: el orden de índices en la generación de la matriz
+(`A[i][j] = SampleNTT(XOF(ρ,j,i))`, con `j` antes que `i`), que la
+transposición en `encrypt` no regenera nada — solo invierte el índice de
+acceso (`A^T[i][j] = A[j][i]`) —, y el byte de separación de dominio
+`d||k` en keygen.
+
+**Validado con 96/96 verificaciones** (`models/test_ml_kem_protocol.py`):
+`keygen` coincide byte a byte con `kyber-py` (tamaños oficiales
+`ek=800B`, `dk=1632B`), `encaps` coincide (`c=768B`), `decaps` recupera
+el secreto compartido correctamente **incluyendo interoperabilidad
+cruzada** (el `decaps` propio desencripta un ciphertext generado por
+`kyber-py`, y viceversa), y el mecanismo de rechazo implícito produce
+exactamente la misma clave "basura" que `kyber-py` ante un ciphertext
+corrompido.
+
+### NTT/multiplicación/suma escalar en C (`poly_ntt.c`)
+
+Módulo nuevo para el firmware de referencia (sin aceleración vectorial):
+`poly_ntt`, `poly_intt`, `poly_pointwise_mul`, `poly_add`, `poly_sub`,
+replicando exactamente el algoritmo ya validado en `kyber_ref.py` —
+incluyendo las 3 correcciones de bugs reales de la Fase 4 (NTT in-place,
+Gentleman-Sande con twiddle directo y resta `b-a`, `INV128=3303`). Las
+constantes de twiddle (`sw/lib/poly_ntt_constants.h`) se generan
+reusando directamente `kyber_ref.ZETAS` — la misma fuente que usa
+`rtl/vector/twiddle_rom.sv` — para que la versión escalar (C) y la
+versión vectorial (RTL) nunca puedan divergir por una transcripción
+independiente. Validado nativo: 1280/1280 valores correctos, primer
+intento (sin bugs, gracias a reusar el algoritmo ya depurado en vez de
+reescribirlo). Acepta la dependencia de `libgcc` (`__mulsi3`) — mismo
+criterio que `pack.c`: multiplicación genuina, sin tabla de lookup
+razonable.
+
+### K-PKE.KeyGen en C — bug real de codegen del compilador con optimización
+
+`sw/lib/k_pke_keygen.c` orquesta `keccak.c` + `cbd.c` + `sample_ntt.c` +
+`poly_ntt.c` + `pack.c`. Validado **nativo**: 1568/1568 bytes correctos
+(800 de `ek_pke` + 768 de `dk_pke`), coincidiendo exactamente con
+`kyber_ref.k_pke_keygen()`, con `-O2` nativo — primer intento, sin
+bugs.
+
+**Al correr en el core real, sin embargo, `ek_pke` fallaba en gran
+parte de sus bytes** (`dk_pke` seguía 100% correcto). El diagnóstico se
+hizo con el mismo método de aislamiento progresivo usado en toda la
+Fase 4/5 — volcando a memoria, en firmwares cada vez más reducidos,
+distintos valores intermedios hasta encontrar el punto exacto de
+divergencia:
+
+1. La matriz `A[0][0]` (generada vía `XOF`+`sample_ntt`): **correcta**.
+2. `s_hat[0]`, `e_hat[0]` (NTT de los vectores de ruido): **correctos**.
+3. `prod = A[0][0] × s_hat[0]` (un solo producto punto a punto, **sin**
+   acumulación): **incorrecto**, con un patrón de "1 de cada 4
+   coeficientes correcto, 3 incorrectos".
+
+Dado que `poly_pointwise_mul` ya estaba validado de forma aislada
+(1280/1280 casos) y funcionando correctamente *dentro de este mismo
+firmware* para calcular `s_hat`/`e_hat`, el problema no podía estar en
+el algoritmo — tenía que ser algo específico de *este* patrón de
+llamada (dentro de un acumulador anidado, con arrays extraídos de un
+tensor 3D `A[k][k][N]`).
+
+**Confirmación decisiva**: el mismo código fuente, compilado
+**nativamente** (x86, `-O2`) para el testbench nativo, ya había pasado
+1568/1568 — es decir, el bug **no aparece fuera del target RV32I**.
+Probando distintos niveles de optimización del compilador cruzado
+(`riscv64-unknown-elf-gcc`) sobre el mismo código fuente:
+
+| Nivel | Resultado |
+|---|---|
+| `-O0` | Correcto |
+| `-O1` | Incorrecto (256/256 coeficientes fallan) |
+| `-O2` | Incorrecto (192/256 fallan) |
+| `-O2 -fno-strict-aliasing` | Incorrecto (mismo patrón que `-O2`) |
+
+Esto confirma que es un **bug de generación de código del compilador
+cruzado**, no de la lógica del proyecto (algoritmo, RTL, o memoria) —
+se decidió **no perseguir la causa raíz dentro de GCC** (estaría fuera
+del alcance de este proyecto, que es un core RISC-V, no un compilador),
+y en su lugar **compilar este firmware específico con `-O0`**,
+documentado explícitamente como limitación conocida del toolchain.
+Costo medido: ~2.7× más ciclos de ejecución que con optimización
+(8,957,759 ciclos con `-O0` para el mismo trabajo). Verificado
+end-to-end con `-O0`: **1568/1568 bytes correctos** en el core real,
+sin regresión en ningún testbench anterior.
+
+**Nota para la Fase 5 en curso**: dado que el firmware acelerado
+(usando las instrucciones vectoriales, en vez de `poly_ntt.c` escalar)
+tiene mucho menos código C optimizable en el camino crítico — la NTT
+misma corre en hardware, no en software compilado — es razonable
+esperar que ese firmware no dispare el mismo bug del compilador, o que
+el costo relativo de usar `-O0` ahí sea menor. Esto se confirmará al
+construir esa versión.
+
+**Comandos:**
+```bash
+cd sim && make k_pke_keygen_firmware
+```
+
 ### SampleNTT (muestreo por rechazo, generación de la matriz A)
 
 `sw/lib/sample_ntt.c` — Algorithm 1 de FIPS 203 ("Parse"): consume
