@@ -846,6 +846,134 @@ de la Fase 4) y medir el speedup real entre ambas.
 cd sim && make ml_kem_firmware
 ```
 
+## Firmware ACELERADO (vectorial) — bug real de RTL encontrado y corregido, speedup medido
+
+### El módulo acelerado (`sw/asm/poly_vector_ops.S`)
+
+Para medir el speedup real de las instrucciones vectoriales, se escribió un
+módulo en **ensamblador** que implementa las mismas 5 funciones que
+`poly_ntt.c` (`poly_ntt`, `poly_intt`, `poly_pointwise_mul`, `poly_add`,
+`poly_sub`), con **idéntica firma y convención de llamada C** — así
+`k_pke_keygen.c`, `k_pke_encrypt.c`, `k_pke_decrypt.c` y `ml_kem.c` no
+necesitan **ningún cambio**: el firmware acelerado se obtiene simplemente
+linkeando `poly_vector_ops.S` en vez de `poly_ntt.c`.
+
+Esto requirió extender `sw/asm/vector_macros.S` con los alias ABI
+estándar de RISC-V (`a0`-`a7`, `ra`, `sp`, `t0`-`t6`, etc.) como símbolos
+numéricos — antes solo existían `x0`-`x31`, insuficiente para escribir
+funciones que siguen la convención de llamada C de forma legible.
+
+### Bug real #1 — race condición memoria/escalar tras `vstore` (limitación de diseño, no de RTL)
+
+El primer intento del firmware acelerado completo dio resultados
+incorrectos. El diagnóstico, con el mismo método de aislamiento
+progresivo de siempre (esta vez usando trazas de señales internas del
+pipeline vía Verilator — `pc`, `idex_opcode`, `is_vector_instr`,
+`gated_start`, `any_busy`), reveló que el **desacople del pipeline
+(Apéndice A.1)** funciona exactamente como fue diseñado: una vez que una
+instrucción vectorial **despacha** (no cuando **termina**), el pipeline
+escalar continúa. Esto significa que un `ret` inmediatamente después de
+un `vstore` permite que el código C que llama a la función lea la
+memoria de destino **con instrucciones escalares normales** mientras el
+`vstore` sigue escribiendo en segundo plano (hasta 256 ciclos) — el
+scoreboard de la Fase 4 protege únicamente los **registros** vectoriales
+(v0-v3), nunca la **memoria** que `vload`/`vstore` tocan.
+
+**Solución** (sin tocar el RTL, que ya estaba correcto para lo que fue
+diseñado a proteger): cada función de `poly_vector_ops.S` que termina
+con un `vstore` agrega un `vload` de sincronización (hacia un registro
+vectorial sin uso posterior) inmediatamente después, antes del `ret`.
+Como la unidad vectorial es un recurso único, ese `vload` no puede
+despachar hasta que el `vstore` anterior **termine por completo** —
+reusando el mecanismo de recurso único ya existente para forzar la
+sincronización que el software necesitaba.
+
+### Bug real #2 — `vector_unit.sv` leía el registro vectorial equivocado en `vstore`
+
+Después de aplicar la solución anterior, el firmware **seguía**
+fallando. Diagnóstico más profundo (verificando directamente, vía
+Verilator, el contenido del `vreg_file` interno tras cada operación)
+reveló que `vload` cargaba los datos correctos en `v0`, pero `vstore`
+escribía **ceros** a memoria en vez del contenido de `v0`.
+
+La causa raíz, encontrada en `rtl/vector/vector_unit.sv`:
+
+```systemverilog
+// ANTES (bug):
+.vreg (funct3 == OP_VSTORE ? vreg_rs1 : vreg_rd),
+```
+
+Para `vstore`, el registro vectorial fuente se tomaba de `vreg_rs1` —
+que en la variante MEMORIA del encoding es simplemente los 2 bits bajos
+del **registro escalar** que contiene la dirección (ej. `a0`, que vale
+`x10` — bits bajos `10`), **no** un selector de registro vectorial
+válido. El diseño documentado en `vector_control.sv` desde la Fase 3/4
+es explícito: *"rd\[1:0\] = registro vectorial destino (vload) u origen
+(vstore)"* — el campo correcto es siempre `rd`, en ambos casos. La
+instrucción `vstore v0, a0` (con `a0=x10`) terminaba leyendo `v2` (bits
+bajos de `10`) en vez de `v0` — y como `v2` nunca había sido escrito,
+`vstore` escribía sus ceros de reset a memoria.
+
+**Por qué nunca se detectó en la Fase 4**: el testbench de integración
+`tb_vector_unit.cpp` interactúa directamente con los puertos de
+`vector_unit.sv` (sin pasar por `vector_control.sv`), y su función
+`do_vstore()` asignaba `top->vreg_rs1 = vreg_src` — repitiendo la **misma
+premisa incorrecta** en el testbench, por lo que el bug y su test
+"se cancelaban" mutuamente y todos los casos pasaban. El bug solo se
+manifestó al ejercitar la ruta real desde código C compilado, donde el
+registro escalar de dirección (`a0`) tiene bits bajos que **no**
+coinciden por casualidad con el registro vectorial deseado.
+
+**Corrección aplicada** (2 líneas, en archivos distintos):
+- `rtl/vector/vector_unit.sv`: `.vreg (vreg_rd),` sin el mux condicional
+  — `vreg_rd` ya es correcto en ambos casos, según el diseño documentado.
+- `tb/tb_vector_unit.cpp`: `do_vstore()` ahora asigna `top->vreg_rd =
+  vreg_src` (antes `vreg_rs1`), alineando el testbench con el contrato
+  correcto de la interfaz.
+
+**Regresión completa tras el fix**: los 14 testbenches vectoriales de la
+Fase 4 (`barrett_reduce`, `butterfly_ct`, `butterfly_gs`, `vreg_file`,
+`ntt_engine`, `base_case_mul`, `vpmul_engine`, `poly_addsub`,
+`addsub_engine`, `barrett_engine`, `vload_vstore_engine`, `vector_unit`,
+`vector_control`, `vector_scoreboard`, `core_top_pipelined_vector`)
+pasan sin cambios — el bug era específico de la ruta `vstore` con un
+registro escalar de dirección cuyos bits bajos no coinciden con el vreg
+real, y ningún otro testbench ejercitaba esa combinación.
+
+### Resultado: firmware acelerado correcto, con speedup medido
+
+Con ambos hallazgos corregidos, el firmware acelerado completo
+(`keygen → encaps → decaps normal → decaps con rechazo implícito`,
+usando `poly_vector_ops.S` en vez de `poly_ntt.c`) produce **exactamente
+el mismo resultado criptográfico** que la versión escalar — ambas claves
+compartidas (`K_decaps_normal`, `K_decaps_rechazo_implicito`) coinciden
+byte a byte.
+
+| Versión | Ciclos | 
+|---|---|
+| Escalar (`poly_ntt.c`) | 48,105,637 |
+| Acelerada (`poly_vector_ops.S`) | 31,487,197 |
+| **Speedup** | **~1.53×** |
+
+El speedup es notablemente menor que el que reportan otros trabajos de
+la literatura para NTT acelerada en aislamiento (ver `referencias.md`,
+ítem 7: 141-245× solo para NTT/INTT/CWM) — esto es **esperado y
+coherente** con el diseño de este proyecto: las instrucciones
+vectoriales de la Fase 3/4 aceleran únicamente NTT/INTT/multiplicación
+punto a punto/suma/resta/reducción Barrett, pero **no** aceleran Keccak
+(SHA3/SHAKE), que domina el tiempo total del protocolo completo (la
+generación de la matriz `A` sola requiere 4 llamadas a SHAKE128 con 840
+bytes de salida cada una, más las llamadas a SHAKE256 para PRF, más
+SHA3-512/SHA3-256 en varios puntos). El speedup end-to-end del
+**protocolo completo** es, por diseño, mucho más modesto que el speedup
+de la NTT aislada — una distinción importante para la documentación
+final del proyecto (Fase 6).
+
+**Comandos:**
+```bash
+cd sim && make ml_kem_vector_firmware
+```
+
 ### SampleNTT (muestreo por rechazo, generación de la matriz A)
 
 `sw/lib/sample_ntt.c` — Algorithm 1 de FIPS 203 ("Parse"): consume

@@ -74,6 +74,46 @@
 .equ x30, 30
 .equ x31, 31
 
+# Alias ABI estandar de RISC-V (ver green card, tabla de "REGISTER
+# NAME, USE, CALLING CONVENTION") — necesarios para poder escribir
+# 'vload v0, a0' de forma natural en codigo ensamblador que sigue la
+# convencion de llamada C estandar (ej. sw/asm/poly_vector_ops.S),
+# igual que x0-x31 ya se definieron arriba para permitir su uso dentro
+# de las expresiones aritmeticas de estas macros.
+.equ zero, 0
+.equ ra,   1
+.equ sp,   2
+.equ gp,   3
+.equ tp,   4
+.equ t0,   5
+.equ t1,   6
+.equ t2,   7
+.equ s0,   8
+.equ fp,   8
+.equ s1,   9
+.equ a0,  10
+.equ a1,  11
+.equ a2,  12
+.equ a3,  13
+.equ a4,  14
+.equ a5,  15
+.equ a6,  16
+.equ a7,  17
+.equ s2,  18
+.equ s3,  19
+.equ s4,  20
+.equ s5,  21
+.equ s6,  22
+.equ s7,  23
+.equ s8,  24
+.equ s9,  25
+.equ s10, 26
+.equ s11, 27
+.equ t3,  28
+.equ t4,  29
+.equ t5,  30
+.equ t6,  31
+
 .equ OPCODE_CUSTOM0, 0b0001011
 
 .equ FUNCT3_VLOAD,    0b000

@@ -99,7 +99,7 @@ static bool do_vload(uint16_t addr, int vreg_dst) {
 
 static bool do_vstore(uint16_t addr, int vreg_src) {
     top->funct3 = OP_VSTORE;
-    top->vreg_rs1 = vreg_src;
+    top->vreg_rd = vreg_src;
     top->scalar_addr = addr;
     top->start = 1;
     tick();

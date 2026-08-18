@@ -231,7 +231,7 @@ module vector_unit (
         .start             (start_loadstore),
         .is_store          (funct3 == OP_VSTORE),
         .addr_base         (scalar_addr),
-        .vreg              (funct3 == OP_VSTORE ? vreg_rs1 : vreg_rd),
+        .vreg              (vreg_rd),
         .busy              (loadstore_busy),
         .done              (loadstore_done),
         .dmem_addr         (ls_dmem_addr),
