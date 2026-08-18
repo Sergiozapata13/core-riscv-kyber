@@ -289,3 +289,173 @@ Los criterios de verificación de la Fase 2 (cada componente aislado +
 programa completo con resultados idénticos al monociclo) pasan de forma
 reproducible. Entorno listo para arrancar la Fase 3 (diseño de la ISA
 vectorial custom).
+
+## Fase 4 — Integración de la unidad vectorial al pipeline (cierre)
+
+La especificación de la ISA vectorial (8 instrucciones, encoding, análisis
+constant-time) y el modelo de referencia en Python quedaron documentados
+en `isa_vectorial_kyber.docx` (Fase 3). Esta sección cubre la
+implementación RTL y su integración con el pipeline de la Fase 2.
+
+### Módulos implementados
+
+| Módulo | Rol | Tests |
+|---|---|---|
+| `barrett_reduce.sv` | Reducción modular base, usada por todo lo demás | 412 casos |
+| `butterfly_ct.sv` / `butterfly_gs.sv` | Mariposas Cooley-Tukey / Gentleman-Sande | 305 + 305 casos |
+| `base_case_mul.sv` | Multiplicación de grado 1, dominio NTT | 605 casos |
+| `poly_addsub.sv` | Suma/resta de coeficientes | 612 casos |
+| `vreg_file.sv` | Banco de 4 registros vectoriales, 256 coef de 16b c/u | 15 casos |
+| `twiddle_rom.sv` | Tabla de 128 twiddle factors, generada desde el modelo de referencia | — |
+| `ntt_engine.sv` (+ `_top.sv`) | Motor FSM de `vntt`/`vintt`, 7 niveles × 128 mariposas | round-trip 256/256 coef |
+| `vpmul_engine.sv` (+ `_top.sv`) | Motor de `vpmul` | 256/256 coef |
+| `addsub_engine.sv` (+ `_top.sv`) | Motor de `vadd`/`vsub` | 256/256 coef ×2 |
+| `barrett_engine.sv` (+ `_top.sv`) | Motor de `vbarrett` | 256/256 coef |
+| `vload_vstore_engine.sv` (+ `_top.sv`) | Motor de `vload`/`vstore` | round-trip 256/256 coef |
+| `vector_unit.sv` | Integra los 5 motores, banco/ROM compartidos, mux por `funct3` | 8 instrucciones encadenadas |
+| `vector_control.sv` | Decodificador (vive en EX, no ID — ver más abajo) | 24 casos |
+| `vector_scoreboard.sv` | Scoreboard de 4 bits (Apéndice A.4) | 9 casos |
+| `dmem.sv` (extendida) | +1 puerto independiente para `vector_unit` | 17 casos |
+
+### Decisión de diseño: `vector_control` vive en EX, no en ID
+
+`id_ex_reg` ya propaga `opcode`/`funct3`/`rs1`/`rs2`/`rd` completos hasta
+EX (los usa el mux de operando de la ALU para AUIPC/LUI/JALR), y
+`control.sv` ya trata el opcode custom-0 como "no reconocido" — todas las
+señales de control escalares quedan en 0 por defecto para una
+instrucción vectorial, sin necesitar ningún cambio. Por lo tanto no hace
+falta decodificar de nuevo en ID ni agregar campos nuevos al registro de
+segmentación: `vector_control` es un decodificador puramente
+combinacional en EX, que además necesita `ex_rs1_fwd` (la dirección
+escalar para `vload`/`vstore`, ya forwardeada por el pipeline existente)
+— ese dato solo está disponible en EX, otra razón para no decodificar en
+ID.
+
+### Decisión de diseño: `dmem` extendida a 2 puertos, no arbitraje
+
+`vload`/`vstore` acceden a la misma `dmem` que usa la etapa MEM del
+pipeline escalar, pero pueden tardar hasta 256 ciclos — y mientras tanto
+el pipeline escalar sigue corriendo sus propias instrucciones de memoria
+(decisión A.1). Con un solo puerto esto es un conflicto estructural real.
+Se evaluaron dos opciones: arbitrar un único puerto con stalls
+adicionales, o extender `dmem` a 2 puertos independientes (mismo patrón
+ya usado en `vreg_file`). Se eligió la segunda por evitar la complejidad
+de arbitraje que el proyecto viene evitando deliberadamente en otros
+puntos (ej. NTT secuencial en vez de paralela). El puerto 1 preserva
+exactamente la interfaz y comportamiento de la Fase 1 (los 13 casos
+originales siguen pasando sin modificación); el puerto 2 es nuevo,
+exclusivo de `vector_unit`. En colisión de escritura a la misma palabra,
+el puerto 2 gana (misma convención que `vreg_file`).
+
+### Decisión de diseño: el scoreboard es redundante, se construye igual
+
+Dado que `vector_unit` es un recurso único no pipelineado (Apéndice A.1),
+`vector_control` ya bloquea `vec_start` mientras `vector_unit_busy=1`,
+sin importar qué registros toque la nueva instrucción — como máximo un
+bit del scoreboard de 4 bits puede estar activo a la vez. Se demostró que,
+bajo este diseño, el chequeo fino por registro que hace el scoreboard es
+funcionalmente redundante con el chequeo grueso "unidad ocupada" para
+efectos de stall del pipeline: no existe ningún escenario donde uno
+permita avanzar algo que el otro bloquearía. Se construyó el scoreboard
+igual, tal como especifica el Apéndice A.4, por tres razones: fidelidad
+al diseño ya cerrado, ser el gancho natural para una futura cola de
+instrucciones (que sí rompería la redundancia), y dar visibilidad útil en
+waveforms para la Fase 6. El stall real del pipeline usa la condición más
+simple y suficiente: `is_vector_instr_en_EX && vector_unit_busy`.
+
+### Mecanismo de stall: `id_ex_reg.stall` + `ex_mem_reg.flush`
+
+A diferencia del hazard de load-use (que descarta y re-decodifica la
+instrucción dependiente), una instrucción vectorial que no puede
+despachar debe permanecer **la misma** en EX hasta que `vector_unit` se
+libere. Se usa el puerto `stall` de `id_ex_reg` (antes fijo en `1'b0`)
+para congelar EX con la instrucción vectorial, y el puerto `flush` de
+`ex_mem_reg` para insertar una burbuja hacia MEM/WB en cada ciclo de
+espera — así la instrucción no se "completa" una vez por cada ciclo de
+stall, solo cuando finalmente despacha.
+
+### Bugs reales encontrados y corregidos
+
+- **NTT no operaba in-place**: la FSM leía siempre del registro fuente en
+  vez de encadenar los 7 niveles sobre el destino — a partir del segundo
+  nivel, los resultados del nivel anterior estaban en el registro
+  incorrecto. Corregido agregando un estado `COPY` inicial (copia
+  fuente→destino, 256 ciclos) antes de operar in-place, igual que el
+  buffer único del modelo de referencia.
+- **Fórmula de Gentleman-Sande incorrecta**: la sección 6.3 original de
+  `isa_vectorial_kyber.docx` especificaba el twiddle factor inverso y
+  resta `(a−b)`, siguiendo la convención académica estándar de FFT/NTT.
+  La implementación real de Kyber usa el twiddle **directo** (mismo que
+  Cooley-Tukey) y resta `(b−a)`. Ambos errores se confirmaron debuggeando
+  el motor NTT completo contra el modelo de referencia, y se corrigieron
+  en el RTL y en el documento de especificación.
+- **Constante `INV128` mal calculada**: `3212` en el comentario original
+  (nunca verificada realmente contra Python pese a decir "verificado"),
+  valor correcto `3303` — confirmado `128×3303 mod 3329 = 1`.
+- **Overflow de bits en `poly_addsub`**: `sum_raw` en 13 bits con signo
+  (máximo 4095) no alcanzaba para la suma máxima real `2×(q−1)=6656`,
+  causando resultados incorrectos en ~18% de los casos de prueba
+  (justamente los que tenían `a+b≥q`). Corregido a 14 bits.
+- **Truncamiento a 12 bits en `vbarrett`**: la entrada al `barrett_reduce`
+  interno truncaba a `[11:0]`, perdiendo bits altos — pasó desapercibido
+  en los demás motores porque todos operan sobre coeficientes ya
+  reducidos a `[0,q)` (caben en 12 bits), pero `vbarrett` existe
+  justamente para reducir valores crudos más grandes que `q`.
+
+### Precondición de diseño de `barrett_reduce`: rango de entrada acotado
+
+`barrett_reduce` implementa una sola corrección bidireccional (no una
+cadena de correcciones), verificada exhaustivamente correcta para el
+rango real de uso del proyecto (productos y diferencias de coeficientes
+ya reducidos a `[0,q)`, remainder crudo siempre en `(-q,q)`, confirmado
+sobre 33M+ valores). No garantiza corrección para el rango completo de 32
+bits con signo (los extremos `±2^31` caen fuera del rango soportado) —
+documentado explícitamente como precondición de uso, no una limitación
+descubierta tarde.
+
+### Verificación de integración: firmware real, no señales simuladas a mano
+
+El criterio de cierre más exigente de la fase: un firmware con
+instrucciones RV32I estándar y vectoriales custom mezcladas (codificado a
+mano, con las instrucciones escalares verificadas bit a bit contra el
+toolchain real `riscv64-unknown-elf-as` antes de confiar en el
+codificador propio para las instrucciones custom), corriendo por el
+pipeline completo:
+
+```
+addi x2, x0, 0
+vntt v1, v0            # ~1152 ciclos
+addi x2, x2, 1  (x5)   # canario — debe avanzar RAPIDO, sin esperar a vntt
+sw   x2, 0x100(x0)
+vbarrett v1, v1        # debe ESPERAR a que vntt termine (recurso único)
+addi x3, x0, 99
+sw   x3, 0x104(x0)
+```
+
+Resultados: el canario aparece en memoria en el ciclo 11 (confirmando
+desacople, Apéndice A.1); la unidad vectorial registra exactamente 2
+despachos con un hueco máximo de 1 ciclo entre operaciones y 1410 ciclos
+totales ocupada (confirmando serialización sin solapamiento, Apéndice
+A.4). Nota de diseño encontrada durante este test: el criterio inicial de
+"serialización" asumía que había que esperar a que **ambas** operaciones
+vectoriales terminaran completamente — incorrecto, porque el desacople
+aplica a *toda* instrucción vectorial, no solo a la primera. El criterio
+correcto (y el que finalmente se verificó) es que la segunda instrucción
+vectorial no pueda **despachar** hasta que la primera **termine**, lo
+cual es una propiedad más débil y es exactamente lo que Apéndice A.4
+especifica.
+
+**Comandos:**
+```bash
+cd sim
+make core_top_pipelined         # regresión: mismo fib.s, resultados idénticos a Fase 1/2
+make core_top_pipelined_vector  # integración: firmware mixto escalar+vectorial
+```
+
+### Estado de Fase 4
+
+Los 33 módulos del proyecto (15 escalares + 18 vectoriales/integración)
+pasan de forma reproducible, incluyendo la verificación de integración
+con firmware real. Entorno listo para arrancar la Fase 5 (Kyber
+end-to-end como firmware bare-metal, con métrica de speedup vectorial vs.
+escalar).
