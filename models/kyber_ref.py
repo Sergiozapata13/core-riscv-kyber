@@ -157,3 +157,40 @@ def poly_pointwise_mul(a: list[int], b: list[int]) -> list[int]:
         c0, c1 = _base_case_multiply(a[4 * i + 2], a[4 * i + 3], b[4 * i + 2], b[4 * i + 3], Q - zeta)
         r[4 * i + 2], r[4 * i + 3] = c0, c1
     return r
+
+
+def _bit_count(x: int) -> int:
+    return bin(x).count("1")
+
+
+def cbd(input_bytes: bytes, eta: int) -> list[int]:
+    """
+    Muestreo de la distribucion binomial centrada (CBD) — Fase 5.
+
+    Algoritmo identico a kyber_py.polynomials.PolynomialRing.cbd()
+    (verificado por comparacion directa de codigo fuente, no solo por
+    resultado — ver models/test_kyber_ref.py), que a su vez implementa
+    el Algorithm 7 (SamplePolyCBD) de FIPS 203 / Algorithm 2 de la
+    especificacion Kyber round 3.
+
+    Entrada: 64*eta bytes de un stream uniformemente aleatorio (en la
+    practica, la salida de PRF/SHAKE256 con la semilla de ruido).
+    Para cada uno de los 256 coeficientes, se toman 2*eta bits: los
+    primeros eta bits cuentan como 'a' (suma de bits en 1), los
+    siguientes eta bits cuentan como 'b'; el coeficiente es (a-b) mod q.
+
+    eta=3 para ML-KEM-512 (ruido de generacion de clave, eta1);
+    eta=2 para el ruido de encapsulacion (eta2).
+    """
+    assert 64 * eta == len(input_bytes), f"se esperaban {64*eta} bytes, se recibieron {len(input_bytes)}"
+    coefficients = [0] * N
+    b_int = int.from_bytes(input_bytes, "little")
+    mask = (1 << eta) - 1
+    mask2 = (1 << (2 * eta)) - 1
+    for i in range(N):
+        x = b_int & mask2
+        a = _bit_count(x & mask)
+        b = _bit_count((x >> eta) & mask)
+        b_int >>= 2 * eta
+        coefficients[i] = (a - b) % Q
+    return coefficients

@@ -577,3 +577,34 @@ sí) encontrado y corregido, con la corrección aplicada de forma
 retrocompatible. Pendiente: CBD (muestreo de ruido), empaquetado/
 compresión de polinomios, y el firmware completo de keygen/encapsulation/
 decapsulation.
+
+### CBD (Centered Binomial Distribution)
+
+`sw/lib/cbd.c` — muestreo del ruido de Kyber (`η=3` para el ruido de
+generación de clave en ML-KEM-512, `η=2` para el ruido de
+encapsulación). Algoritmo idéntico a `kyber_py.PolynomialRing.cbd()`
+(FIPS 203 Algorithm 7), agregado primero al modelo de referencia
+(`models/kyber_ref.py`) y verificado contra `kyber-py` por comparación
+directa de código fuente además de resultado — 40/40 casos (ambos
+valores de `η`, 20 pruebas aleatorias cada uno).
+
+Implementación en C, aplicando desde el principio la misma disciplina de
+autocontención que costó un ciclo de debug completo en Keccak: sin
+operador `%` (la corrección `(a-b) mod q` se resuelve con una sola suma
+condicional, ya que `a-b` está acotado a `[-η,η]`), sin `memset`/
+`memcpy`. Validado en las mismas tres capas que Keccak:
+
+1. Nativo contra el modelo de referencia: 512/512 coeficientes correctos
+   (256 para cada `η`).
+2. Toolchain RV32I: compila limpio con `-march=rv32i -ffreestanding`,
+   sin instrucciones `mul`/`div`.
+3. Ejecución real en el core: firmware completo corriendo sobre
+   `core_top_pipelined`, 256/256 coeficientes correctos — **sin
+   necesitar ningún debug adicional**, gracias al fix de `dmem` ya
+   aplicado y al cuidado de escribir el C de forma autocontenida desde
+   el principio.
+
+**Comandos:**
+```bash
+cd sim && make cbd_firmware
+```
