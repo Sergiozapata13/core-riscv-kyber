@@ -194,3 +194,75 @@ def cbd(input_bytes: bytes, eta: int) -> list[int]:
         b_int >>= 2 * eta
         coefficients[i] = (a - b) % Q
     return coefficients
+
+
+def byte_encode(coeffs: list[int], d: int) -> bytes:
+    """
+    ByteEncode (Algorithm 4 de FIPS 203, "Encode" en kyber-py) — Fase 5.
+
+    Empaqueta 256 coeficientes de d bits cada uno (sin compresion, sin
+    perdida) en un stream de 32*d bytes, little-endian. d=12 para
+    codificar coeficientes completos mod q (q=3329 < 2^12).
+
+    Algoritmo identico a kyber_py.Polynomial.encode() (verificado por
+    comparacion directa de codigo fuente).
+    """
+    t = 0
+    for i in range(255):
+        t |= coeffs[256 - i - 1]
+        t <<= d
+    t |= coeffs[0]
+    return t.to_bytes(32 * d, "little")
+
+
+def byte_decode(input_bytes: bytes, d: int) -> list[int]:
+    """
+    ByteDecode (Algorithm 3 de FIPS 203) — Fase 5.
+
+    Inverso de byte_encode. Si d=12, reduce mod q (3329); para otros
+    valores de d (compresion), reduce mod 2^d — ver seccion 4.2.1 de
+    FIPS 203, donde ByteDecode siempre aplica una reduccion final.
+
+    Algoritmo identico a kyber_py.PolynomialRing.decode() (verificado
+    por comparacion directa de codigo fuente).
+    """
+    assert 256 * d == len(input_bytes) * 8, \
+        f"se esperaban {256*d//8} bytes para d={d}, se recibieron {len(input_bytes)}"
+    m = Q if d == 12 else (1 << d)
+    coeffs = [0] * N
+    b_int = int.from_bytes(input_bytes, "little")
+    mask = (1 << d) - 1
+    for i in range(N):
+        coeffs[i] = (b_int & mask) % m
+        b_int >>= d
+    return coeffs
+
+
+def compress_coeff(x: int, d: int) -> int:
+    """
+    Compress_d(x) = round((2^d/q)*x) mod 2^d — FIPS 203 seccion 4.2.1.
+    Compresion CON PERDIDA de un solo coeficiente. Algoritmo identico a
+    kyber_py.Polynomial._compress_ele().
+    """
+    t = 1 << d
+    y = (t * x + Q // 2) // Q
+    return y % t
+
+
+def decompress_coeff(x: int, d: int) -> int:
+    """
+    Decompress_d(x) = round((q/2^d)*x) — FIPS 203 seccion 4.2.1.
+    Inverso aproximado de compress_coeff (con perdida, x' != x original
+    pero cercano en magnitud). Algoritmo identico a
+    kyber_py.Polynomial._decompress_ele().
+    """
+    t = 1 << (d - 1)
+    return (Q * x + t) >> d
+
+
+def poly_compress(coeffs: list[int], d: int) -> list[int]:
+    return [compress_coeff(c, d) for c in coeffs]
+
+
+def poly_decompress(coeffs: list[int], d: int) -> list[int]:
+    return [decompress_coeff(c, d) for c in coeffs]

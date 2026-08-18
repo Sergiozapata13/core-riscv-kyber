@@ -608,3 +608,43 @@ condicional, ya que `a-b` está acotado a `[-η,η]`), sin `memset`/
 ```bash
 cd sim && make cbd_firmware
 ```
+
+### Empaquetado y compresión de polinomios (ByteEncode/Compress)
+
+`sw/lib/pack.c` — `ByteEncode`/`ByteDecode` (FIPS 203 Algoritmos 3/4,
+`d=12`, sin pérdida, para claves y `t`) y `Compress`/`Decompress`
+(sección 4.2.1, con pérdida, `d=10` para `u` y `d=4` para `v` en el
+ciphertext de ML-KEM-512). Algoritmos idénticos a
+`kyber_py.Polynomial.encode()`/`_compress_ele()`/`_decompress_ele()`,
+agregados al modelo de referencia y verificados contra `kyber-py` —
+120/120 casos (`byte_encode`/`decode` con `d=12`, `compress`/
+`decompress` con `d=10` y `d=4`).
+
+**Diferencia clave con Keccak/CBD**: `compress_coeff` necesita
+multiplicación y división genuinas por `q=3329` (no potencia de 2, sin
+tabla de lookup razonable) — a diferencia de los módulos anteriores, acá
+se **aceptó conscientemente** el link contra `libgcc` (`-lgcc`, que
+provee `__udivsi3`/`__mulsi3` en software para RV32I sin extensión M).
+Confirmado con `nm` que el objeto compilado depende de exactamente un
+símbolo externo (`__udivsi3`) — la única operación del módulo que
+genuinamente lo requiere, no una dependencia accidental como las que se
+eliminaron en Keccak/CBD.
+
+Validado en las mismas tres capas: nativo (1792/1792 valores correctos:
+384 bytes de `byte_encode` + 256+256 de `compress`/`decompress` con
+`d=10`, más las verificaciones con `d=4`), toolchain RV32I (link exitoso
+con `-lgcc`), y ejecución real en el core (896/896 valores correctos,
+sin necesitar debug adicional).
+
+**Comandos:**
+```bash
+cd sim && make pack_firmware
+```
+
+### Estado de Fase 5 (parcial, actualizado)
+
+Las tres piezas de software auxiliar (macros de ensamblador, Keccak/SHA3/
+SHAKE, CBD, empaquetado/compresión) están completas y verificadas en
+tres capas cada una. Pendiente: el firmware completo de keygen/
+encapsulation/decapsulation que las combina, más el firmware
+escalar-puro equivalente para la métrica de speedup.

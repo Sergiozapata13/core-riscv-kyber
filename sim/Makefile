@@ -15,9 +15,50 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit vector_control vector_scoreboard core_top_pipelined_vector keccak_firmware cbd_firmware clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit vector_control vector_scoreboard core_top_pipelined_vector keccak_firmware cbd_firmware pack_firmware clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit vector_control vector_scoreboard core_top_pipelined_vector keccak_firmware cbd_firmware
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit vector_control vector_scoreboard core_top_pipelined_vector keccak_firmware cbd_firmware pack_firmware
+
+# ---------------------------------------------------------------------------
+# Fase 5 - Firmware pack (byte_encode/compress) corriendo sobre el core real
+# ---------------------------------------------------------------------------
+pack_firmware:
+	$(VERILATOR) --cc --exe --build --trace \
+		-Wall -Wno-DECLFILENAME \
+		--top-module core_top_pipelined \
+		-GADDR_WIDTH=16 -GINIT_FILE='"../sw/tests/test_pack_firmware.hex"' \
+		$(RTL_DIR)/core/alu.sv \
+		$(RTL_DIR)/core/control.sv \
+		$(RTL_DIR)/core/regfile.sv \
+		$(RTL_DIR)/core/imm_gen.sv \
+		$(RTL_DIR)/core/branch_unit.sv \
+		$(RTL_DIR)/core/imem.sv \
+		$(RTL_DIR)/core/dmem.sv \
+		$(RTL_DIR)/core/if_id_reg.sv \
+		$(RTL_DIR)/core/id_ex_reg.sv \
+		$(RTL_DIR)/core/ex_mem_reg.sv \
+		$(RTL_DIR)/core/mem_wb_reg.sv \
+		$(RTL_DIR)/core/forwarding_unit.sv \
+		$(RTL_DIR)/core/hazard_detection_unit.sv \
+		$(RTL_DIR)/vector/barrett_reduce.sv \
+		$(RTL_DIR)/vector/butterfly_ct.sv \
+		$(RTL_DIR)/vector/butterfly_gs.sv \
+		$(RTL_DIR)/vector/base_case_mul.sv \
+		$(RTL_DIR)/vector/poly_addsub.sv \
+		$(RTL_DIR)/vector/vreg_file.sv \
+		$(RTL_DIR)/vector/twiddle_rom.sv \
+		$(RTL_DIR)/vector/ntt_engine.sv \
+		$(RTL_DIR)/vector/vpmul_engine.sv \
+		$(RTL_DIR)/vector/addsub_engine.sv \
+		$(RTL_DIR)/vector/barrett_engine.sv \
+		$(RTL_DIR)/vector/vload_vstore_engine.sv \
+		$(RTL_DIR)/vector/vector_unit.sv \
+		$(RTL_DIR)/vector/vector_control.sv \
+		$(RTL_DIR)/vector/vector_scoreboard.sv \
+		$(RTL_DIR)/core/core_top_pipelined.sv \
+		$(TB_DIR)/tb_pack_firmware.cpp \
+		-o pack_firmware_sim
+	./$(BUILD_DIR)/pack_firmware_sim
 
 # ---------------------------------------------------------------------------
 # Fase 5 - Firmware CBD corriendo sobre el core real
