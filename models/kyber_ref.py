@@ -266,3 +266,45 @@ def poly_compress(coeffs: list[int], d: int) -> list[int]:
 
 def poly_decompress(coeffs: list[int], d: int) -> list[int]:
     return [decompress_coeff(c, d) for c in coeffs]
+
+
+def sample_ntt(input_bytes: bytes) -> list[int]:
+    """
+    SampleNTT / Parse (Algorithm 1 de FIPS 203, "Algorithm 6" de la
+    especificacion Kyber round 3) — Fase 5.
+
+    Muestreo por rechazo (rejection sampling): consume 3 bytes por
+    iteracion, produce hasta 2 candidatos de 12 bits cada uno, rechaza
+    los que caen en [q, 4096) — sesgo cero garantizado, a diferencia de
+    tomar directamente 12 bits mod q (que introduciria sesgo, ya que
+    4096 no es multiplo de 3329).
+
+    Algoritmo identico a kyber_py.PolynomialRing.ntt_sample() (verificado
+    por comparacion directa de codigo fuente). 'input_bytes' debe venir
+    de un XOF (SHAKE128) con suficientes bytes — en la practica, un
+    buffer generoso (ver sw/lib/sample_ntt.c para el tamaño exacto
+    usado en la implementacion C) alcanza con probabilidad
+    overwhelmingly alta, dado que P(rechazo por candidato) ~= 18.7%.
+    """
+    i, j = 0, 0
+    coefficients = [0] * N
+    while j < N:
+        d1 = input_bytes[i] + 256 * (input_bytes[i + 1] % 16)
+        d2 = (input_bytes[i + 1] // 16) + 16 * input_bytes[i + 2]
+
+        if d1 < Q:
+            coefficients[j] = d1
+            j += 1
+
+        if d2 < Q and j < N:
+            coefficients[j] = d2
+            j += 1
+
+        i += 3
+
+        if i + 3 > len(input_bytes):
+            raise ValueError(
+                f"sample_ntt: se agotaron los {len(input_bytes)} bytes de entrada "
+                f"antes de completar los 256 coeficientes (j={j}) — aumentar el buffer"
+            )
+    return coefficients

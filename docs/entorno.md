@@ -648,3 +648,48 @@ SHAKE, CBD, empaquetado/compresión) están completas y verificadas en
 tres capas cada una. Pendiente: el firmware completo de keygen/
 encapsulation/decapsulation que las combina, más el firmware
 escalar-puro equivalente para la métrica de speedup.
+
+### SampleNTT (muestreo por rechazo, generación de la matriz A)
+
+`sw/lib/sample_ntt.c` — Algorithm 1 de FIPS 203 ("Parse"): consume
+bytes de un XOF (SHAKE128) de a 3 en 3, produce hasta 2 candidatos de 12
+bits por iteración, **rechaza** los que caen en `[q, 4096)` para
+garantizar muestreo sin sesgo (4096 no es múltiplo de `q=3329`, así que
+tomar 12 bits directos introduciría sesgo). Pieza identificada como
+faltante al planear el algoritmo completo de generación de claves — no
+estaba prevista en el plan original de "solo ensamblar las piezas ya
+construidas".
+
+Algoritmo idéntico a `kyber_py.PolynomialRing.ntt_sample()`, agregado al
+modelo de referencia y verificado contra `kyber-py` usando SHAKE128
+**real** (no datos sintéticos) como fuente de bytes — 50/50 casos, cada
+uno con una semilla aleatoria distinta pasada por `hashlib.shake_128`.
+
+**Buffer de tamaño fijo con fallo explícito**: a diferencia de una
+implementación con XOF verdaderamente extensible, se usa un buffer fijo
+de 840 bytes (5 bloques de SHAKE128), generosamente por encima del
+tamaño esperado (~472 bytes, dado que `P(rechazo)≈18.7%` por candidato).
+Si el buffer se agotara (evento de probabilidad extremadamente baja pero
+no nula), la función retorna un código de fallo explícito en vez de
+producir silenciosamente un polinomio incompleto — mismo principio de
+"fallar ruidosamente antes que dar un resultado incorrecto" aplicado en
+todo el proyecto.
+
+Sin operador `%` genérico (`% 16` y `/ 16` se resuelven con AND/shift,
+ya que 16 es potencia de 2) — completamente autocontenido, sin
+dependencias externas, igual que Keccak y CBD.
+
+**Validado en tres capas**, con una particularidad: el firmware de la
+capa 3 combina **dos** piezas de software por primera vez (`keccak.c` +
+`sample_ntt.c`, ya que `sample_ntt` necesita bytes reales de SHAKE128 —
+un primer paso hacia el firmware completo de keygen). Falló inicialmente
+por límite de ciclos insuficiente en el testbench (`shake128` con 840
+bytes de salida necesita ~6 permutaciones Keccak completas, no 1-2 como
+en las pruebas anteriores de Keccak/CBD) — no un bug de RTL ni de C,
+corregido ajustando el presupuesto de ciclos del testbench. Resultado
+final: 256/256 coeficientes correctos, en el ciclo 317307.
+
+**Comandos:**
+```bash
+cd sim && make sample_ntt_firmware
+```
