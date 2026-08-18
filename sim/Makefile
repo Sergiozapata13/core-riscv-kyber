@@ -15,9 +15,21 @@ RISCV_CC    := riscv64-unknown-elf-gcc
 RISCV_OBJCOPY := riscv64-unknown-elf-objcopy
 RISCV_FLAGS := -march=rv32i -mabi=ilp32 -nostdlib -nostartfiles -O2
 
-.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit vector_control clean
+.PHONY: all hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit vector_control vector_scoreboard clean
 
-all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit vector_control
+all: hello_verilator hello_riscv regfile alu control imm_gen branch_unit imem dmem core_top if_id_reg id_ex_reg ex_mem_reg mem_wb_reg forwarding_unit hazard_detection_unit core_top_pipelined barrett_reduce butterfly_ct butterfly_gs vreg_file ntt_engine base_case_mul vpmul_engine poly_addsub addsub_engine barrett_engine vload_vstore_engine vector_unit vector_control vector_scoreboard
+
+# ---------------------------------------------------------------------------
+# Fase 4 - Scoreboard vectorial de 4 bits
+# ---------------------------------------------------------------------------
+vector_scoreboard:
+	$(VERILATOR) --cc --exe --build \
+		-Wall -Wno-DECLFILENAME \
+		--top-module vector_scoreboard \
+		$(RTL_DIR)/vector/vector_scoreboard.sv \
+		$(TB_DIR)/tb_vector_scoreboard.cpp \
+		-o vector_scoreboard_sim
+	./$(BUILD_DIR)/vector_scoreboard_sim
 
 # ---------------------------------------------------------------------------
 # Fase 4 - Unidad de control vectorial (decodificador, vive en EX)

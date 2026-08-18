@@ -170,16 +170,26 @@ module core_top
     // -------------------------------------------------------------------
     logic [31:0] mem_rdata;
 
+    logic [31:0] dmem_rdata2_unused;
+
     dmem #(
         .ADDR_WIDTH(ADDR_WIDTH)
     ) u_dmem (
-        .clk       (clk),
-        .addr      (alu_result[ADDR_WIDTH-1:0]),
-        .wdata     (rs2_data),
-        .mem_read  (c_mem_read),
-        .mem_write (c_mem_write),
-        .funct3    (funct3),
-        .rdata     (mem_rdata)
+        .clk        (clk),
+        .addr       (alu_result[ADDR_WIDTH-1:0]),
+        .wdata      (rs2_data),
+        .mem_read   (c_mem_read),
+        .mem_write  (c_mem_write),
+        .funct3     (funct3),
+        .rdata      (mem_rdata),
+        // Puerto 2 (Fase 4, vector_unit): inerte aca — core_top.sv es el
+        // datapath monociclo de la Fase 1, sin integracion vectorial.
+        .addr2      ({ADDR_WIDTH{1'b0}}),
+        .wdata2     (32'd0),
+        .mem_read2  (1'b0),
+        .mem_write2 (1'b0),
+        .funct3_2   (3'd0),
+        .rdata2     (dmem_rdata2_unused)
     );
 
     // -------------------------------------------------------------------

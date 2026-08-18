@@ -366,16 +366,27 @@ module core_top_pipelined
     // =====================================================================
     logic [31:0] mem_rdata;
 
+    logic [31:0] dmem_rdata2_unused;
+
     dmem #(
         .ADDR_WIDTH(ADDR_WIDTH)
     ) u_dmem (
-        .clk       (clk),
-        .addr      (exmem_alu_result[ADDR_WIDTH-1:0]),
-        .wdata     (exmem_rs2_data),
-        .mem_read  (exmem_mem_read),
-        .mem_write (exmem_mem_write),
-        .funct3    (exmem_funct3),
-        .rdata     (mem_rdata)
+        .clk        (clk),
+        .addr       (exmem_alu_result[ADDR_WIDTH-1:0]),
+        .wdata      (exmem_rs2_data),
+        .mem_read   (exmem_mem_read),
+        .mem_write  (exmem_mem_write),
+        .funct3     (exmem_funct3),
+        .rdata      (mem_rdata),
+        // Puerto 2 (Fase 4, vector_unit): se conecta en el bloque de
+        // integracion final; por ahora inerte para no romper la
+        // verificacion existente de esta fase (fib.s).
+        .addr2      ({ADDR_WIDTH{1'b0}}),
+        .wdata2     (32'd0),
+        .mem_read2  (1'b0),
+        .mem_write2 (1'b0),
+        .funct3_2   (3'd0),
+        .rdata2     (dmem_rdata2_unused)
     );
 
     // =====================================================================

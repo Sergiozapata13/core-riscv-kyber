@@ -64,6 +64,13 @@ int main(int argc, char** argv) {
     Verilated::commandArgs(argc, argv);
     top = new Vdmem;
     top->clk = 0;
+    // Puerto 2 inerte por defecto — no debe interferir con los casos del
+    // puerto 1 (Fase 1) mientras no se lo ejercite explicitamente.
+    top->addr2 = 0;
+    top->wdata2 = 0;
+    top->mem_read2 = 0;
+    top->mem_write2 = 0;
+    top->funct3_2 = 0;
 
     // ---- Caso 1: sw + lw basico ----
     do_write(0x00, 0xDEADBEEF, F3_SW);
@@ -119,6 +126,40 @@ int main(int argc, char** argv) {
     top->mem_write = 0;
     tick();
     check("caso6_mem_write0_no_modifica", do_read(0x24, F3_LW), before);
+
+    // ---- Caso 7: puerto 2 escribe/lee independientemente del puerto 1 ----
+    // (Fase 4: vector_unit necesita su propio acceso, sin interferir con
+    // el puerto que usa el pipeline escalar)
+    top->addr2      = 0x40;
+    top->wdata2     = 0xCAFEBABE;
+    top->mem_write2 = 1;
+    top->mem_read2  = 0;
+    top->funct3_2   = F3_SW;
+    tick();
+    top->mem_write2 = 0;
+
+    top->addr2     = 0x40;
+    top->mem_read2 = 1;
+    top->funct3_2  = F3_LW;
+    top->eval();
+    check("caso7_puerto2_sw_lw", top->rdata2, 0xCAFEBABE);
+    top->mem_read2 = 0;
+
+    // Confirmar que el puerto 1 no vio nada de esto (direcciones distintas,
+    // pero tambien confirmamos que mem_read/mem_write del puerto 1 en 0
+    // durante la escritura del puerto 2 no producen efecto cruzado)
+    check("caso7_puerto1_no_afectado", do_read(0x24, F3_LW), before);
+
+    // ---- Caso 8: escritura simultanea de ambos puertos a la MISMA
+    //      palabra, mismo ciclo -> puerto 2 gana (misma convencion que
+    //      vreg_file we1/we2) ----
+    top->addr      = 0x44; top->wdata  = 0x11111111;
+    top->mem_write = 1;    top->funct3 = F3_SW;
+    top->addr2     = 0x44; top->wdata2 = 0x22222222;
+    top->mem_write2 = 1;   top->funct3_2 = F3_SW;
+    tick();
+    top->mem_write = 0; top->mem_write2 = 0;
+    check("caso8_colision_puerto2_gana", do_read(0x44, F3_LW), 0x22222222);
 
     delete top;
 

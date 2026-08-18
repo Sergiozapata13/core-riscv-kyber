@@ -86,16 +86,28 @@ module vload_vstore_engine_top (
     assign mux_dmem_funct3 = busy ? eng_dmem_funct3 : FUNCT3_LW;
     assign ext_dmem_rdata  = dmem_rdata_shared;
 
+    logic [31:0] dmem_port2_rdata_unused;
+
     dmem #(
         .ADDR_WIDTH(16)
     ) u_dmem (
-        .clk       (clk),
-        .addr      (mux_dmem_addr),
-        .wdata     (mux_dmem_wdata),
-        .mem_read  (mux_dmem_re),
-        .mem_write (mux_dmem_we),
-        .funct3    (mux_dmem_funct3),
-        .rdata     (dmem_rdata_shared)
+        .clk        (clk),
+        .addr       (mux_dmem_addr),
+        .wdata      (mux_dmem_wdata),
+        .mem_read   (mux_dmem_re),
+        .mem_write  (mux_dmem_we),
+        .funct3     (mux_dmem_funct3),
+        .rdata      (dmem_rdata_shared),
+        // Puerto 2: sin uso en este wrapper de testing (sigue usando el
+        // mux interno del puerto 1, ya verificado en la Fase 4) — el
+        // puerto 2 real de dmem se aprovecha en la integracion final
+        // (core_top_pipelined.sv), no en este wrapper aislado.
+        .addr2      (16'd0),
+        .wdata2     (32'd0),
+        .mem_read2  (1'b0),
+        .mem_write2 (1'b0),
+        .funct3_2   (3'd0),
+        .rdata2     (dmem_port2_rdata_unused)
     );
 
     // ---- Mux de acceso a vreg_file: motor cuando busy, externo cuando no ----
