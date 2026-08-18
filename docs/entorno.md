@@ -783,6 +783,30 @@ para `k_pke_keygen`).
 cd sim && make k_pke_encrypt_firmware
 ```
 
+### K-PKE.Decrypt en C — sin bugs, la pieza más simple del trío
+
+`sw/lib/k_pke_decrypt.c` — más simple que `keygen`/`encrypt` (no genera
+matriz `A` ni ruido nuevo: solo decodifica el ciphertext, corre 2 NTTs,
+un producto interno, una resta, y compresión final). Replica
+exactamente `kyber_ref.k_pke_decrypt()`.
+
+**Validación end-to-end real, no solo aislada**: los vectores de prueba
+reusan el `dk_pke` generado por el test de `keygen` y el ciphertext
+generado por el test de `encrypt` (misma semilla en los tres), así que
+pasar este test confirma el **ciclo criptográfico completo**
+(`keygen→encrypt→decrypt` recupera el mensaje original), no solo que
+`decrypt` aislado coincide con su contraparte en Python. Nativo: 32/32
+bytes correctos, primer intento. En el core real: 32/32 bytes
+correctos, en 2,031,114 ciclos — notablemente más rápido que
+`keygen`/`encrypt` (~9-10M ciclos cada uno), coherente con que
+`decrypt` no paga el costo de generar la matriz `A` (4 llamadas a XOF
+de 840 bytes) ni de muestrear ruido nuevo.
+
+**Comandos:**
+```bash
+cd sim && make k_pke_decrypt_firmware
+```
+
 ### SampleNTT (muestreo por rechazo, generación de la matriz A)
 
 `sw/lib/sample_ntt.c` — Algorithm 1 de FIPS 203 ("Parse"): consume
