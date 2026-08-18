@@ -308,3 +308,216 @@ def sample_ntt(input_bytes: bytes) -> list[int]:
                 f"antes de completar los 256 coeficientes (j={j}) — aumentar el buffer"
             )
     return coefficients
+
+
+# =====================================================================
+# ML-KEM-512 (FIPS 203) — protocolo completo — Fase 5
+#
+# Orquesta las primitivas ya validadas (ntt, intt, poly_pointwise_mul,
+# poly_add, poly_sub, cbd, byte_encode, byte_decode, poly_compress,
+# poly_decompress, sample_ntt, barrett_reduce) siguiendo exactamente
+# el algoritmo de kyber_py.ml_kem.ml_kem.ML_KEM — codigo fuente
+# revisado directamente (no de memoria) para capturar los detalles
+# exactos: orden de indices en la matriz A (A[i][j] usa xof(rho,j,i),
+# NO xof(rho,i,j)), la transposicion en encrypt (A^T[i][j] = A[j][i],
+# sin regenerar nada — solo se invierte el indice de acceso), y el
+# byte de separacion de dominio d+bytes([k]) en keygen.
+#
+# Parametros ML-KEM-512: k=2, eta1=3, eta2=2, du=10, dv=4.
+# =====================================================================
+
+import hashlib
+
+MLKEM_K = 2
+MLKEM_ETA1 = 3
+MLKEM_ETA2 = 2
+MLKEM_DU = 10
+MLKEM_DV = 4
+
+
+def _G(s: bytes) -> tuple[bytes, bytes]:
+    """G = SHA3-512, dividido en dos mitades de 32 bytes (FIPS 203 4.5)."""
+    h = hashlib.sha3_512(s).digest()
+    return h[:32], h[32:]
+
+
+def _H(s: bytes) -> bytes:
+    """H = SHA3-256 (FIPS 203 4.4)."""
+    return hashlib.sha3_256(s).digest()
+
+
+def _J(s: bytes) -> bytes:
+    """J = SHAKE256, 32 bytes de salida (FIPS 203 4.4)."""
+    return hashlib.shake_256(s).digest(32)
+
+
+def _prf(eta: int, s: bytes, b: bytes) -> bytes:
+    """PRF = SHAKE256(s||b, 64*eta) (FIPS 203 4.3). s: 32 bytes, b: 1 byte."""
+    assert len(s) == 32 and len(b) == 1
+    return hashlib.shake_256(s + b).digest(64 * eta)
+
+
+def _xof(rho: bytes, i: bytes, j: bytes) -> bytes:
+    """XOF = SHAKE128(rho||i||j, 840) (FIPS 203 4.9). rho: 32 bytes, i,j: 1 byte c/u."""
+    assert len(rho) == 32 and len(i) == 1 and len(j) == 1
+    return hashlib.shake_128(rho + i + j).digest(840)
+
+
+def _generate_matrix(rho: bytes, k: int = MLKEM_K) -> list[list[list[int]]]:
+    """
+    A[i][j] = sample_ntt(xof(rho, j, i)) — OJO: el orden es (j,i), no
+    (i,j), confirmado contra el codigo fuente de kyber-py
+    (_generate_matrix_from_seed). Se genera UNA sola vez; la
+    "transposicion" en encrypt no regenera nada, solo invierte el
+    indice de acceso al usarla (ver k_pke_encrypt).
+    """
+    A = [[None] * k for _ in range(k)]
+    for i in range(k):
+        for j in range(k):
+            xof_bytes = _xof(rho, bytes([j]), bytes([i]))
+            A[i][j] = sample_ntt(xof_bytes)
+    return A
+
+
+def _generate_error_vector(sigma: bytes, eta: int, N: int, k: int = MLKEM_K):
+    """Genera k polinomios CBD(eta) desde PRF(sigma, N), PRF(sigma,N+1), ..."""
+    elements = []
+    for _ in range(k):
+        prf_out = _prf(eta, sigma, bytes([N]))
+        elements.append(cbd(prf_out, eta))
+        N += 1
+    return elements, N
+
+
+def k_pke_keygen(d: bytes, k: int = MLKEM_K) -> tuple[bytes, bytes]:
+    """K-PKE.KeyGen — FIPS 203 Algorithm 13."""
+    rho, sigma = _G(d + bytes([k]))  # separacion de dominio por k
+
+    A = _generate_matrix(rho, k)
+
+    N = 0
+    s, N = _generate_error_vector(sigma, MLKEM_ETA1, N, k)
+    e, N = _generate_error_vector(sigma, MLKEM_ETA1, N, k)
+
+    s_hat = [ntt(s[i]) for i in range(k)]
+    e_hat = [ntt(e[i]) for i in range(k)]
+
+    # t_hat[i] = sum_j( A[i][j] * s_hat[j] ) + e_hat[i]   (indice normal, NO transpuesto)
+    t_hat = []
+    for i in range(k):
+        acc = [0] * N_COEFFS
+        for j in range(k):
+            prod = poly_pointwise_mul(A[i][j], s_hat[j])
+            acc = poly_add(acc, prod)
+        t_hat.append(poly_add(acc, e_hat[i]))
+
+    ek_pke = b"".join(byte_encode(t_hat[i], 12) for i in range(k)) + rho
+    dk_pke = b"".join(byte_encode(s_hat[i], 12) for i in range(k))
+    return ek_pke, dk_pke
+
+
+def k_pke_encrypt(ek_pke: bytes, m: bytes, r: bytes, k: int = MLKEM_K) -> bytes:
+    """K-PKE.Encrypt — FIPS 203 Algorithm 14."""
+    t_hat_bytes = ek_pke[: 384 * k]
+    rho = ek_pke[384 * k :]
+    t_hat = [byte_decode(t_hat_bytes[384 * i : 384 * (i + 1)], 12) for i in range(k)]
+
+    A = _generate_matrix(rho, k)
+
+    N = 0
+    y, N = _generate_error_vector(r, MLKEM_ETA1, N, k)
+    e1, N = _generate_error_vector(r, MLKEM_ETA2, N, k)
+    prf_out = _prf(MLKEM_ETA2, r, bytes([N]))
+    e2 = cbd(prf_out, MLKEM_ETA2)
+
+    y_hat = [ntt(y[i]) for i in range(k)]
+
+    # u[i] = intt( sum_j( A[j][i] * y_hat[j] ) ) + e1[i]   (indice INVERTIDO: A^T)
+    u = []
+    for i in range(k):
+        acc = [0] * N_COEFFS
+        for j in range(k):
+            prod = poly_pointwise_mul(A[j][i], y_hat[j])  # A[j][i], no A[i][j]
+            acc = poly_add(acc, prod)
+        u.append(poly_add(intt(acc), e1[i]))
+
+    mu = poly_decompress(byte_decode(m, 1), 1)
+
+    # v = intt( sum_i( t_hat[i] * y_hat[i] ) ) + e2 + mu   (producto interno)
+    acc_v = [0] * N_COEFFS
+    for i in range(k):
+        prod = poly_pointwise_mul(t_hat[i], y_hat[i])
+        acc_v = poly_add(acc_v, prod)
+    v = poly_add(poly_add(intt(acc_v), e2), mu)
+
+    c1 = b"".join(byte_encode(poly_compress(u[i], MLKEM_DU), MLKEM_DU) for i in range(k))
+    c2 = byte_encode(poly_compress(v, MLKEM_DV), MLKEM_DV)
+    return c1 + c2
+
+
+def k_pke_decrypt(dk_pke: bytes, c: bytes, k: int = MLKEM_K) -> bytes:
+    """K-PKE.Decrypt — FIPS 203 Algorithm 15."""
+    n = k * MLKEM_DU * 32
+    c1, c2 = c[:n], c[n:]
+
+    du_bytes_per_poly = 32 * MLKEM_DU
+    u = [
+        poly_decompress(byte_decode(c1[du_bytes_per_poly * i : du_bytes_per_poly * (i + 1)], MLKEM_DU), MLKEM_DU)
+        for i in range(k)
+    ]
+    v = poly_decompress(byte_decode(c2, MLKEM_DV), MLKEM_DV)
+    s_hat = [byte_decode(dk_pke[384 * i : 384 * (i + 1)], 12) for i in range(k)]
+
+    u_hat = [ntt(u[i]) for i in range(k)]
+
+    # w = v - intt( sum_i( s_hat[i] * u_hat[i] ) )
+    acc = [0] * N_COEFFS
+    for i in range(k):
+        prod = poly_pointwise_mul(s_hat[i], u_hat[i])
+        acc = poly_add(acc, prod)
+    w = poly_sub(v, intt(acc))
+
+    m = byte_encode(poly_compress(w, 1), 1)
+    return m
+
+
+def ml_kem_keygen(d: bytes, z: bytes, k: int = MLKEM_K) -> tuple[bytes, bytes]:
+    """ML-KEM.KeyGen — FIPS 203 Algorithm 16/19."""
+    ek_pke, dk_pke = k_pke_keygen(d, k)
+    ek = ek_pke
+    dk = dk_pke + ek + _H(ek) + z
+    return ek, dk
+
+
+def ml_kem_encaps(ek: bytes, m: bytes, k: int = MLKEM_K) -> tuple[bytes, bytes]:
+    """ML-KEM.Encaps — FIPS 203 Algorithm 17/20."""
+    K_shared, r = _G(m + _H(ek))
+    c = k_pke_encrypt(ek, m, r, k)
+    return K_shared, c
+
+
+def ml_kem_decaps(dk: bytes, c: bytes, k: int = MLKEM_K) -> bytes:
+    """ML-KEM.Decaps — FIPS 203 Algorithm 18/21."""
+    dk_pke = dk[: 384 * k]
+    ek_pke = dk[384 * k : 768 * k + 32]
+    h = dk[768 * k + 32 : 768 * k + 64]
+    z = dk[768 * k + 64 :]
+
+    m_prime = k_pke_decrypt(dk_pke, c, k)
+    K_prime, r_prime = _G(m_prime + h)
+    K_bar = _J(z + c)
+    c_prime = k_pke_encrypt(ek_pke, m_prime, r_prime, k)
+
+    # Rechazo implicito: si el ciphertext re-encriptado no coincide,
+    # devolver K_bar (basura pseudoaleatoria) en vez de K_prime. En
+    # produccion esto DEBE ser constant-time; aca (modelo de
+    # referencia en Python, no el firmware final) se usa un simple if
+    # por claridad — el firmware C debera implementarlo sin
+    # bifurcacion si se busca constant-time real en la Fase 5.
+    if c == c_prime:
+        return K_prime
+    else:
+        return K_bar
+
+
+N_COEFFS = N  # alias local para las funciones de arriba (mismo valor que N=256)
