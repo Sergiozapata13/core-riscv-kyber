@@ -459,3 +459,121 @@ pasan de forma reproducible, incluyendo la verificación de integración
 con firmware real. Entorno listo para arrancar la Fase 5 (Kyber
 end-to-end como firmware bare-metal, con métrica de speedup vectorial vs.
 escalar).
+
+## Fase 5 — Kyber end-to-end en el core (en curso)
+
+### Alcance decidido
+
+Kyber completo y fiel al estándar (ML-KEM, FIPS 203, nivel de seguridad
+ML-KEM-512/k=2), no un subconjunto simplificado — incluye SHA3/SHAKE
+real, CBD, empaquetado/compresión. La derivación de aleatoriedad
+(semillas, matriz `A`) usa un generador determinista propio en vez del
+DRBG oficial de NIST (evita implementar AES-256-CTR-DRBG, que no aporta
+a la arquitectura de aceleración vectorial que es el foco del proyecto),
+documentado explícitamente como simplificación consciente.
+
+### Macros de ensamblador (Apéndice A.3)
+
+`sw/asm/vector_macros.S` — las 8 instrucciones vectoriales con mnemonics
+legibles (`vntt v1, v0`), verificadas bit a bit contra un codificador
+Python independiente (11 casos) y confirmadas funcionando tanto con
+`riscv64-unknown-elf-as` directo como con `gcc -x assembler-with-cpp`
+(necesario para firmware mixto C/asm). Encoding es formato R puro **sin
+campo de inmediato** — `vload`/`vstore` toman la dirección directa del
+valor de un registro escalar; el firmware debe precalcular la dirección
+efectiva con `addi` si necesita un offset.
+
+### Keccak-f[1600] / SHA3-256 / SHAKE128/256
+
+`sw/lib/keccak.c` — implementado en C portable, sin dependencias de
+libc. Las 24 constantes de ronda y los offsets de rotación se generan
+programáticamente (`models/gen_keccak_constants.py`, algoritmo LFSR de
+FIPS 202) y se verifican contra la tabla publicada de referencia con un
+`assert` en el propio script generador — mismo criterio de "nunca
+transcribir una constante sin verificar" que costó el bug de `INV128` en
+la Fase 4.
+
+**Compatibilidad con RV32I sin extensión M**: el código original usaba
+el operador `%` sobre valores no potencia de 2, generando llamadas a
+`__modsi3` de `libgcc` — reemplazado por tablas de lookup precalculadas
+(`MOD5_PLUS1`, `MOD5_PLUS4`, `MOD5_PLUS2`, `PI_LANE`), eliminando esa
+dependencia por completo. También se reemplazaron `={0}` y los bucles de
+copia (que el compilador reconoce como patrones de `memset`/`memcpy` y
+sustituye por llamadas a biblioteca inexistente en este entorno
+`-nostdlib`) por funciones propias triviales (`mem_zero`, `mem_copy`).
+El binario final compilado con `-march=rv32i -ffreestanding` no contiene
+ninguna instrucción `mul`/`div`/`rem` ni símbolo externo sin resolver.
+
+**Validación en tres capas**:
+1. Algoritmo correcto — nativo (compilado para el sandbox) contra
+   `hashlib` de Python: 9/9 casos (SHA3-256, SHAKE128, SHAKE256, cada
+   uno sobre 3 mensajes de longitud distinta).
+2. Toolchain compatible — RV32I puro, confirmado sin instrucciones M ni
+   dependencias de libc tras resolver los dos problemas de arriba.
+3. Ejecución real en el core — firmware completo (`crt/start.s` +
+   `keccak.c` + programa de prueba) corriendo sobre `core_top_pipelined`
+   vía Verilator, resultado verificado byte a byte.
+
+### Bug real encontrado: `dmem` nunca se inicializaba con `.rodata`
+
+La capa 3 de validación de Keccak falló inicialmente con un resultado
+casi todo en cero, pese a que las capas 1 y 2 ya habían pasado. El
+diagnóstico se hizo de forma incremental y sistemática (mismo patrón
+usado en toda la Fase 4): se aisló la variable sospechosa escribiendo
+firmwares cada vez más simples hasta encontrar el punto exacto de
+divergencia —
+
+1. Un patrón fijo de bytes escrito con literales directos: correcto.
+2. Una variable local de 32 bits en el stack: correcta.
+3. Una variable local de **64 bits** en el stack: **todo cero**.
+
+El desensamblado del caso 3 reveló la causa: el compilador, al no poder
+construir un literal de 64 bits inline con `lui`/`addi` (rango
+insuficiente), lo coloca en una sección `.rodata`/`.srodata.cst8` en una
+dirección fija del binario, y lo carga con `lw` — una instrucción de
+**datos**, que pasa por `dmem`, no por `imem`. Este core tiene
+arquitectura Harvard (memorias separadas), pero el linker script asume
+memoria unificada (`.text`, `.rodata`, `.data` en el mismo espacio de
+direcciones del binario) — un desajuste ya anotado como riesgo explícito
+en el comentario original de `sw/crt/link.ld` desde la Fase 0, pero que
+nunca se había materializado porque todo el firmware anterior (`fib.s`,
+`hello.c`) usaba solo constantes pequeñas que el compilador podía
+construir inline, sin tocar `.rodata`.
+
+Confirmado con evidencia directa: `readelf` mostró la constante de 64
+bits del caso de prueba en `.srodata.cst8`, dirección `0x88` — la misma
+dirección que el desensamblado usaba en `lw a0, 136(zero)`. En el
+firmware real de Keccak, las 24 constantes `KECCAK_RC` (192 bytes) caen
+en `.rodata` de la misma forma. Solo `imem.sv` tenía un parámetro
+`INIT_FILE` que carga el binario compilado — `dmem.sv` arrancaba siempre
+en ceros. Verificación matemática de por qué el síntoma era "todo cero"
+y no un valor parcialmente incorrecto: Keccak con las 24 constantes de
+ronda en cero, aplicado sobre un estado inicial en cero, permanece en
+cero durante las 24 rondas (theta/rho/pi/chi de un estado nulo siguen
+siendo nulos, e iota XOR-ea con una constante que también es cero).
+
+**Corrección**: se agregó el mismo parámetro `INIT_FILE` a `dmem.sv` que
+ya tenía `imem.sv`, cargando el mismo archivo `.hex` en ambas memorias.
+Comportamiento por defecto preservado explícitamente (`INIT_FILE=""`
+dejando el array sin inicialización, igual que antes) — los 17 casos
+existentes de `dmem` y el firmware `fib.s` de `core_top_pipelined` se
+re-verificaron sin cambios tras el fix, confirmando que no hay
+regresión.
+
+**Comandos:**
+```bash
+cd sim
+make dmem                 # 17/17, comportamiento por defecto preservado
+make core_top_pipelined   # fib.s, sin regresion
+make keccak_firmware      # firmware real de SHA3-256("abc") sobre el core
+```
+
+### Estado de Fase 5 (parcial)
+
+Prerrequisitos resueltos: macros de ensamblador verificadas, Keccak/SHA3/
+SHAKE validado en tres capas (incluyendo ejecución real en el core), y
+un bug de arquitectura de memoria del testbench (no del diseño RTL en
+sí) encontrado y corregido, con la corrección aplicada de forma
+retrocompatible. Pendiente: CBD (muestreo de ruido), empaquetado/
+compresión de polinomios, y el firmware completo de keygen/encapsulation/
+decapsulation.

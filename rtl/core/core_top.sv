@@ -173,7 +173,8 @@ module core_top
     logic [31:0] dmem_rdata2_unused;
 
     dmem #(
-        .ADDR_WIDTH(ADDR_WIDTH)
+        .ADDR_WIDTH(ADDR_WIDTH),
+        .INIT_FILE(INIT_FILE)  // mismo fix de Fase 5 que core_top_pipelined.sv
     ) u_dmem (
         .clk        (clk),
         .addr       (alu_result[ADDR_WIDTH-1:0]),

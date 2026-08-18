@@ -494,7 +494,16 @@ module core_top_pipelined
     logic [31:0] mem_rdata;
 
     dmem #(
-        .ADDR_WIDTH(ADDR_WIDTH)
+        .ADDR_WIDTH(ADDR_WIDTH),
+        // INIT_FILE se pasa tambien a dmem (no solo a imem): este core
+        // tiene arquitectura Harvard, pero el linker asume memoria
+        // unificada — .rodata/.data del firmware C viven en el mismo
+        // binario que .text, y una lectura de esa seccion es una
+        // instruccion 'lw' que pasa por dmem, no imem. Sin esto, las
+        // constantes de solo lectura del firmware (ej. tablas grandes
+        // como KECCAK_RC) se leerian como 0 — bug real encontrado y
+        // diagnosticado en la Fase 5 (ver docs/entorno.md).
+        .INIT_FILE(INIT_FILE)
     ) u_dmem (
         .clk        (clk),
         .addr       (exmem_alu_result[ADDR_WIDTH-1:0]),

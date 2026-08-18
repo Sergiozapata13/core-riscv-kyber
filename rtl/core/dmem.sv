@@ -1,7 +1,7 @@
 // dmem.sv
 //
 // Memoria de datos — Fase 1 (core escalar monociclo), extendida en Fase 4
-// con un segundo puerto para vector_unit.
+// con un segundo puerto para vector_unit, y en Fase 5 con INIT_FILE.
 //
 // Modelo behavioral para simulacion (Verilator). Byte-direccionable, con
 // soporte para los 5 tamanos de acceso de RV32I (ver green card):
@@ -41,9 +41,32 @@
 // el uso real (el firmware de Kyber no deberia hacer un sw escalar y un
 // vstore vectorial a la misma direccion en el mismo ciclo), pero se deja
 // un comportamiento determinista por si acaso.
+//
+// INIT_FILE (Fase 5): este core tiene arquitectura HARVARD (imem
+// separada de dmem), pero el linker script (sw/crt/link.ld) asume
+// memoria UNIFICADA — .text, .rodata, .data y .bss viven todos en el
+// mismo espacio de direcciones fisico del binario compilado. Firmware
+// en ensamblador puro (fib.s) o C trivial (hello.c) nunca expuso este
+// desajuste porque todas sus constantes cabian en instrucciones inline
+// (lui/addi), sin necesitar .rodata. Firmware C real con datos de solo
+// lectura no triviales (ej. las 24 constantes de 64 bits de Keccak,
+// sw/lib/keccak_constants.h) SI los pone en .rodata — y una lectura de
+// esa seccion es una instruccion 'lw' que pasa por dmem, no imem. Sin
+// inicializar dmem con el mismo contenido del binario, esas lecturas
+// devuelven 0 en vez del valor real (bug real encontrado y diagnosticado
+// en la Fase 5 — ver docs/entorno.md para el detalle completo del
+// proceso de diagnostico). Este parametro permite cargar el MISMO
+// archivo .hex en dmem que ya se carga en imem, resolviendo el
+// desajuste sin tocar el linker script ni el flujo de compilacion.
+//
+// Comportamiento por defecto preservado: INIT_FILE="" (el valor por
+// defecto) deja el array sin inicializacion explicita, exactamente como
+// antes de este cambio — ningun testbench existente que no pase este
+// parametro se ve afectado.
 
 module dmem #(
-    parameter int ADDR_WIDTH = 16    // 2^16 bytes = 64 KB, igual que link.ld
+    parameter int ADDR_WIDTH = 16,   // 2^16 bytes = 64 KB, igual que link.ld
+    parameter string INIT_FILE = ""  // ruta al .hex; "" = memoria en 0 (compatibilidad retroactiva)
 ) (
     input  logic                    clk,
 
@@ -69,8 +92,12 @@ module dmem #(
     logic [31:0] mem [NUM_WORDS];
 
     initial begin
-        for (int i = 0; i < NUM_WORDS; i++) begin
-            mem[i] = 32'd0;
+        if (INIT_FILE != "") begin
+            $readmemh(INIT_FILE, mem);
+        end else begin
+            for (int i = 0; i < NUM_WORDS; i++) begin
+                mem[i] = 32'd0;
+            end
         end
     end
 

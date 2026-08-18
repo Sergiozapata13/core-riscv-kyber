@@ -15,6 +15,13 @@ sim/*.bin
 __pycache__/
 *.pyc
 
+# Binarios compilados de tests nativos (Fase 5) — se regeneran con gcc
+sw/tests/native/test_keccak_native
+sw/tests/native/*.o
+
+# Artefactos de build de firmware (Fase 5) — se regeneran con el toolchain
+sw/tests/build/
+
 # Archivos de sistema
 .DS_Store
 *.swp

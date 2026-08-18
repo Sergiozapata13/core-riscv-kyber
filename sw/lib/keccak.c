@@ -21,6 +21,40 @@
 #include <stddef.h>
 #include "keccak_constants.h"
 
+/*
+ * Entorno bare-metal sin libc (-nostdlib): se evita CUALQUIER dependencia
+ * implicita de libgcc/libc que el compilador podria insertar por su
+ * cuenta al reconocer ciertos patrones de codigo:
+ *   - El operador '%' sobre valores que no son potencia de 2 (ej. '% 5')
+ *     genera una llamada a __modsi3 (rutina de software de libgcc) — se
+ *     reemplaza por tablas de lookup precalculadas, ademas de ser mas
+ *     barato en un core sin multiplicador/divisor de hardware.
+ *   - La inicializacion '= {0}' y los bucles de copia de bytes pueden
+ *     ser reconocidos por el compilador y reemplazados por llamadas a
+ *     memset/memcpy — se reemplazan por funciones propias, triviales.
+ */
+
+static void mem_zero(uint8_t *p, size_t n) {
+    for (size_t i = 0; i < n; i++) p[i] = 0;
+}
+
+static void mem_copy(uint8_t *dst, const uint8_t *src, size_t n) {
+    for (size_t i = 0; i < n; i++) dst[i] = src[i];
+}
+
+/* Tablas de lookup para evitar el operador '%' (ver nota arriba). */
+static const int MOD5_PLUS1[5] = {1, 2, 3, 4, 0};   /* (x+1)%5 */
+static const int MOD5_PLUS4[5] = {4, 0, 1, 2, 3};   /* (x+4)%5, equivalente a (x-1) mod 5 */
+static const int MOD5_PLUS2[5] = {2, 3, 4, 0, 1};   /* (x+2)%5 */
+/* PI_LANE[x][y] = (2*x + 3*y) % 5 */
+static const int PI_LANE[5][5] = {
+    {0, 3, 1, 4, 2},
+    {2, 0, 3, 1, 4},
+    {4, 2, 0, 3, 1},
+    {1, 4, 2, 0, 3},
+    {3, 1, 4, 2, 0},
+};
+
 static uint64_t rotl64(uint64_t x, unsigned int n) {
     n &= 63;
     if (n == 0) return x;
@@ -40,7 +74,7 @@ static void keccak_f1600(uint64_t state[25]) {
             C[x] = state[x] ^ state[x + 5] ^ state[x + 10] ^ state[x + 15] ^ state[x + 20];
         }
         for (int x = 0; x < 5; x++) {
-            D[x] = C[(x + 4) % 5] ^ rotl64(C[(x + 1) % 5], 1);
+            D[x] = C[MOD5_PLUS4[x]] ^ rotl64(C[MOD5_PLUS1[x]], 1);
         }
         for (int x = 0; x < 5; x++) {
             for (int y = 0; y < 5; y++) {
@@ -53,7 +87,7 @@ static void keccak_f1600(uint64_t state[25]) {
         for (int x = 0; x < 5; x++) {
             for (int y = 0; y < 5; y++) {
                 int new_x = y;
-                int new_y = (2 * x + 3 * y) % 5;
+                int new_y = PI_LANE[x][y];
                 B[new_x + 5 * new_y] = rotl64(state[x + 5 * y], KECCAK_RHO[x][y]);
             }
         }
@@ -62,7 +96,7 @@ static void keccak_f1600(uint64_t state[25]) {
         for (int x = 0; x < 5; x++) {
             for (int y = 0; y < 5; y++) {
                 state[x + 5 * y] = B[x + 5 * y] ^
-                    ((~B[(x + 1) % 5 + 5 * y]) & B[(x + 2) % 5 + 5 * y]);
+                    ((~B[MOD5_PLUS1[x] + 5 * y]) & B[MOD5_PLUS2[x] + 5 * y]);
             }
         }
 
@@ -80,7 +114,8 @@ static void keccak_f1600(uint64_t state[25]) {
 static void keccak_sponge(const uint8_t *in, size_t inlen,
                            uint8_t domain, size_t rate,
                            uint8_t *out, size_t outlen) {
-    uint8_t state_bytes[200] = {0};  /* 1600 bits = 200 bytes, iniciado en 0 */
+    uint8_t state_bytes[200];  /* 1600 bits = 200 bytes */
+    mem_zero(state_bytes, 200);
 
     /* --- Fase de absorcion --- */
     size_t offset = 0;
@@ -97,10 +132,9 @@ static void keccak_sponge(const uint8_t *in, size_t inlen,
      * el ultimo byte del bloque — si ambos caen en la misma posicion,
      * se OR-ean, ver el caso remaining==rate-1 mas abajo). */
     size_t remaining = inlen - offset;
-    uint8_t last_block[200] = {0};
-    for (size_t i = 0; i < remaining; i++) {
-        last_block[i] = in[offset + i];
-    }
+    uint8_t last_block[200];
+    mem_zero(last_block, 200);
+    mem_copy(last_block, in + offset, remaining);
     last_block[remaining] ^= domain;
     last_block[rate - 1] ^= 0x80;
 
@@ -113,9 +147,7 @@ static void keccak_sponge(const uint8_t *in, size_t inlen,
     size_t produced = 0;
     while (produced < outlen) {
         size_t chunk = (outlen - produced < rate) ? (outlen - produced) : rate;
-        for (size_t i = 0; i < chunk; i++) {
-            out[produced + i] = state_bytes[i];
-        }
+        mem_copy(out + produced, state_bytes, chunk);
         produced += chunk;
         if (produced < outlen) {
             keccak_f1600((uint64_t *)state_bytes);
