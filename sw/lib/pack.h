@@ -16,4 +16,7 @@ void byte_decode_d12(const uint8_t in[384], int16_t out[256]);
 void poly_compress(const int16_t coeffs[256], unsigned int d, uint16_t out[256]);
 void poly_decompress(const uint16_t coeffs[256], unsigned int d, int16_t out[256]);
 
+void byte_encode_generic(const uint16_t coeffs[256], unsigned int d, uint8_t *out);
+void byte_decode_generic(const uint8_t *in, unsigned int d, int16_t out[256]);
+
 #endif /* PACK_H */

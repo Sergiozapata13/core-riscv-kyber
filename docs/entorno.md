@@ -752,6 +752,37 @@ construir esa versión.
 cd sim && make k_pke_keygen_firmware
 ```
 
+### K-PKE.Encrypt en C — sin bugs, primer intento
+
+`sw/lib/k_pke_encrypt.c`, orquestando los mismos módulos que
+`k_pke_keygen` más un módulo nuevo compartido
+(`sw/lib/mlkem_common.c`, con `generate_matrix`/`generate_error_vector`
+extraídas de `k_pke_keygen.c` para no duplicar código entre ambas
+funciones — verificado que el refactor no cambió el resultado de
+`k_pke_keygen`, mismos 1568/1568 bytes que antes). También se extendió
+`pack.c` con versiones **genéricas** de `ByteEncode`/`ByteDecode`
+(`byte_encode_generic`/`byte_decode_generic`, parametrizadas por `d`),
+ya que `encrypt` necesita `d=10` (`u`), `d=4` (`v`), y `d=1` (el
+mensaje) — las versiones fijas en `d=12` no alcanzaban. Validadas para
+los 4 valores de `d` usados en el protocolo: 4×(256+bytes) casos
+correctos.
+
+A diferencia de `k_pke_keygen`, esta vez **no hubo ningún bug** —
+1568 valores nativos y 768/768 bytes en el core real, ambos correctos
+en el primer intento. La diferencia principal fue metodológica: leer
+con cuidado el código fuente de `kyber-py` para dos detalles no obvios
+antes de escribir una sola línea de C — que `u` usa la matriz
+**transpuesta** (`A[j][i]`, no `A[i][j]`) y que `y`, `e1`, `e2` comparten
+un único contador `N` de PRF que avanza secuencialmente a través de las
+tres generaciones. Corrió sobre el core real en 9,885,675 ciclos
+(compilado con `-O0`, la misma limitación de compilador ya documentada
+para `k_pke_keygen`).
+
+**Comandos:**
+```bash
+cd sim && make k_pke_encrypt_firmware
+```
+
 ### SampleNTT (muestreo por rechazo, generación de la matriz A)
 
 `sw/lib/sample_ntt.c` — Algorithm 1 de FIPS 203 ("Parse"): consume

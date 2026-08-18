@@ -113,3 +113,56 @@ void poly_decompress(const uint16_t coeffs[KYBER_N], unsigned int d, int16_t out
         out[i] = decompress_coeff(coeffs[i], d);
     }
 }
+
+/*
+ * byte_encode_generic / byte_decode_generic: version parametrizada por
+ * d (a diferencia de byte_encode_d12/byte_decode_d12, fijas en d=12).
+ * Usadas en encrypt/decrypt para du=10 (u), dv=4 (v), y d=1 (mensaje
+ * m, y tambien la extraccion final w->m en decrypt) — ver FIPS 203
+ * Algoritmos 3/4, seccion 4.2.1.
+ *
+ * El llamador debe dimensionar 'out' (encode) o pasar 'in' (decode)
+ * con exactamente 32*d bytes — mismo patron de bit-accumulator que
+ * byte_encode_d12/byte_decode_d12, generalizado.
+ */
+void byte_encode_generic(const uint16_t coeffs[KYBER_N], unsigned int d, uint8_t *out) {
+    unsigned int acc = 0;
+    unsigned int acc_bits = 0;
+    int out_idx = 0;
+
+    for (int i = 0; i < KYBER_N; i++) {
+        acc |= ((unsigned int)coeffs[i] << acc_bits);
+        acc_bits += d;
+        while (acc_bits >= 8) {
+            out[out_idx] = (uint8_t)(acc & 0xFF);
+            out_idx++;
+            acc >>= 8;
+            acc_bits -= 8;
+        }
+    }
+}
+
+void byte_decode_generic(const uint8_t *in, unsigned int d, int16_t out[KYBER_N]) {
+    unsigned int acc = 0;
+    unsigned int acc_bits = 0;
+    int in_idx = 0;
+    unsigned int mask = (1u << d) - 1u;
+
+    for (int i = 0; i < KYBER_N; i++) {
+        while (acc_bits < d) {
+            acc |= ((unsigned int)in[in_idx] << acc_bits);
+            in_idx++;
+            acc_bits += 8;
+        }
+        unsigned int coef = acc & mask;
+        acc >>= d;
+        acc_bits -= d;
+
+        /* Reduccion final: mod q si d==12 (unico caso donde 2^d > q),
+         * o simplemente el AND de arriba (ya suficiente) para d<12,
+         * donde 2^d <= 2048 < q siempre — no hace falta reduccion
+         * adicional. Misma logica que kyber_ref.byte_decode(). */
+        if (d == 12 && coef >= KYBER_Q) coef -= KYBER_Q;
+        out[i] = (int16_t)coef;
+    }
+}
