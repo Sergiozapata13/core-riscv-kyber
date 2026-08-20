@@ -974,6 +974,46 @@ final del proyecto (Fase 6).
 cd sim && make ml_kem_vector_firmware
 ```
 
+## Validación contra vectores oficiales de NIST ACVP
+
+Todo lo validado hasta este punto usó `kyber-py` como oráculo — una
+implementación de referencia de terceros sólida, pero no la fuente
+oficial. El cronograma original de la Fase 5 pedía explícitamente
+*"comparación contra los test vectors oficiales de referencia de
+Kyber/ML-KEM (NIST) en al menos un subconjunto"* — pendiente que se
+cierra acá.
+
+Los vectores oficiales de NIST se publican en el repositorio del
+servidor ACVP (Automated Cryptographic Validation Protocol) — la misma
+fuente que usan los laboratorios de validación FIPS 140-3 para
+certificar implementaciones reales:
+
+```
+https://github.com/usnistgov/ACVP-Server/blob/master/gen-val/json-files/ML-KEM-keyGen-FIPS203/internalProjection.json
+https://github.com/usnistgov/ACVP-Server/blob/master/gen-val/json-files/ML-KEM-encapDecap-FIPS203/internalProjection.json
+```
+
+Descargados y congelados en `models/nist_vectors/` (~2MB total).
+`models/test_nist_acvp.py` filtra únicamente los `testGroups` con
+`parameterSet == "ML-KEM-512"` (el único nivel de seguridad que
+implementa este proyecto — se ignoran ML-KEM-768/1024) y valida
+`kyber_ref.py` contra **todos** los casos disponibles: 25 de `keyGen`,
+25 de `encaps`, 10 de `decaps`.
+
+**110/110 verificaciones correctas**, sin transcribir ni adaptar nada —
+los vectores se consumen directamente en su formato JSON original. El
+resultado más valioso: de los 10 casos de `decaps`, **6 tienen
+`reason: "modified ciphertext"`** — vectores de rechazo implícito
+generados por NIST mismo, no por este proyecto ni por `kyber-py`. Que
+todos pasen confirma que el mecanismo `J(z||c)` implementado coincide
+con la especificación oficial, no solo con una interpretación de
+terceros de la misma.
+
+**Comandos:**
+```bash
+cd models && python3 test_nist_acvp.py
+```
+
 ### SampleNTT (muestreo por rechazo, generación de la matriz A)
 
 `sw/lib/sample_ntt.c` — Algorithm 1 de FIPS 203 ("Parse"): consume
