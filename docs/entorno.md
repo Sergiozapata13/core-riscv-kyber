@@ -460,7 +460,7 @@ con firmware real. Entorno listo para arrancar la Fase 5 (Kyber
 end-to-end como firmware bare-metal, con métrica de speedup vectorial vs.
 escalar).
 
-## Fase 5 — Kyber end-to-end en el core (en curso)
+## Fase 5 — Kyber end-to-end en el core (cierre)
 
 ### Alcance decidido
 
@@ -568,16 +568,6 @@ make core_top_pipelined   # fib.s, sin regresion
 make keccak_firmware      # firmware real de SHA3-256("abc") sobre el core
 ```
 
-### Estado de Fase 5 (parcial)
-
-Prerrequisitos resueltos: macros de ensamblador verificadas, Keccak/SHA3/
-SHAKE validado en tres capas (incluyendo ejecución real en el core), y
-un bug de arquitectura de memoria del testbench (no del diseño RTL en
-sí) encontrado y corregido, con la corrección aplicada de forma
-retrocompatible. Pendiente: CBD (muestreo de ruido), empaquetado/
-compresión de polinomios, y el firmware completo de keygen/encapsulation/
-decapsulation.
-
 ### CBD (Centered Binomial Distribution)
 
 `sw/lib/cbd.c` — muestreo del ruido de Kyber (`η=3` para el ruido de
@@ -641,13 +631,50 @@ sin necesitar debug adicional).
 cd sim && make pack_firmware
 ```
 
-### Estado de Fase 5 (parcial, actualizado)
+### SampleNTT (muestreo por rechazo, generación de la matriz A)
 
-Las tres piezas de software auxiliar (macros de ensamblador, Keccak/SHA3/
-SHAKE, CBD, empaquetado/compresión) están completas y verificadas en
-tres capas cada una. Pendiente: el firmware completo de keygen/
-encapsulation/decapsulation que las combina, más el firmware
-escalar-puro equivalente para la métrica de speedup.
+`sw/lib/sample_ntt.c` — Algorithm 1 de FIPS 203 ("Parse"): consume
+bytes de un XOF (SHAKE128) de a 3 en 3, produce hasta 2 candidatos de 12
+bits por iteración, **rechaza** los que caen en `[q, 4096)` para
+garantizar muestreo sin sesgo (4096 no es múltiplo de `q=3329`, así que
+tomar 12 bits directos introduciría sesgo). Pieza identificada como
+faltante al planear el algoritmo completo de generación de claves — no
+estaba prevista en el plan original de "solo ensamblar las piezas ya
+construidas".
+
+Algoritmo idéntico a `kyber_py.PolynomialRing.ntt_sample()`, agregado al
+modelo de referencia y verificado contra `kyber-py` usando SHAKE128
+**real** (no datos sintéticos) como fuente de bytes — 50/50 casos, cada
+uno con una semilla aleatoria distinta pasada por `hashlib.shake_128`.
+
+**Buffer de tamaño fijo con fallo explícito**: a diferencia de una
+implementación con XOF verdaderamente extensible, se usa un buffer fijo
+de 840 bytes (5 bloques de SHAKE128), generosamente por encima del
+tamaño esperado (~472 bytes, dado que `P(rechazo)≈18.7%` por candidato).
+Si el buffer se agotara (evento de probabilidad extremadamente baja pero
+no nula), la función retorna un código de fallo explícito en vez de
+producir silenciosamente un polinomio incompleto — mismo principio de
+"fallar ruidosamente antes que dar un resultado incorrecto" aplicado en
+todo el proyecto.
+
+Sin operador `%` genérico (`% 16` y `/ 16` se resuelven con AND/shift,
+ya que 16 es potencia de 2) — completamente autocontenido, sin
+dependencias externas, igual que Keccak y CBD.
+
+**Validado en tres capas**, con una particularidad: el firmware de la
+capa 3 combina **dos** piezas de software por primera vez (`keccak.c` +
+`sample_ntt.c`, ya que `sample_ntt` necesita bytes reales de SHAKE128 —
+un primer paso hacia el firmware completo de keygen). Falló inicialmente
+por límite de ciclos insuficiente en el testbench (`shake128` con 840
+bytes de salida necesita ~6 permutaciones Keccak completas, no 1-2 como
+en las pruebas anteriores de Keccak/CBD) — no un bug de RTL ni de C,
+corregido ajustando el presupuesto de ciclos del testbench. Resultado
+final: 256/256 coeficientes correctos, en el ciclo 317307.
+
+**Comandos:**
+```bash
+cd sim && make sample_ntt_firmware
+```
 
 ### Protocolo ML-KEM-512 completo en Python (keygen/encaps/decaps)
 
@@ -846,9 +873,9 @@ de la Fase 4) y medir el speedup real entre ambas.
 cd sim && make ml_kem_firmware
 ```
 
-## Firmware ACELERADO (vectorial) — bug real de RTL encontrado y corregido, speedup medido
+### Firmware ACELERADO (vectorial) — bug real de RTL encontrado y corregido, speedup medido
 
-### El módulo acelerado (`sw/asm/poly_vector_ops.S`)
+#### El módulo acelerado (`sw/asm/poly_vector_ops.S`)
 
 Para medir el speedup real de las instrucciones vectoriales, se escribió un
 módulo en **ensamblador** que implementa las mismas 5 funciones que
@@ -863,7 +890,7 @@ estándar de RISC-V (`a0`-`a7`, `ra`, `sp`, `t0`-`t6`, etc.) como símbolos
 numéricos — antes solo existían `x0`-`x31`, insuficiente para escribir
 funciones que siguen la convención de llamada C de forma legible.
 
-### Bug real #1 — race condición memoria/escalar tras `vstore` (limitación de diseño, no de RTL)
+#### Bug real #1 — race condición memoria/escalar tras `vstore` (limitación de diseño, no de RTL)
 
 El primer intento del firmware acelerado completo dio resultados
 incorrectos. El diagnóstico, con el mismo método de aislamiento
@@ -888,7 +915,7 @@ despachar hasta que el `vstore` anterior **termine por completo** —
 reusando el mecanismo de recurso único ya existente para forzar la
 sincronización que el software necesitaba.
 
-### Bug real #2 — `vector_unit.sv` leía el registro vectorial equivocado en `vstore`
+#### Bug real #2 — `vector_unit.sv` leía el registro vectorial equivocado en `vstore`
 
 Después de aplicar la solución anterior, el firmware **seguía**
 fallando. Diagnóstico más profundo (verificando directamente, vía
@@ -940,7 +967,7 @@ pasan sin cambios — el bug era específico de la ruta `vstore` con un
 registro escalar de dirección cuyos bits bajos no coinciden con el vreg
 real, y ningún otro testbench ejercitaba esa combinación.
 
-### Resultado: firmware acelerado correcto, con speedup medido
+#### Resultado: firmware acelerado correcto, con speedup medido
 
 Con ambos hallazgos corregidos, el firmware acelerado completo
 (`keygen → encaps → decaps normal → decaps con rechazo implícito`,
@@ -974,7 +1001,7 @@ final del proyecto (Fase 6).
 cd sim && make ml_kem_vector_firmware
 ```
 
-## Validación contra vectores oficiales de NIST ACVP
+### Validación contra vectores oficiales de NIST ACVP
 
 Todo lo validado hasta este punto usó `kyber-py` como oráculo — una
 implementación de referencia de terceros sólida, pero no la fuente
@@ -1014,7 +1041,7 @@ terceros de la misma.
 cd models && python3 test_nist_acvp.py
 ```
 
-## Verificación constant-time a nivel de ciclos
+### Verificación constant-time a nivel de ciclos
 
 Pendiente explícito de la Fase 4 (*"Verificación de constant-time: el
 número de ciclos de cada instrucción custom es independiente del valor
@@ -1049,7 +1076,7 @@ el número de ciclos ni el camino tomado.
 cd sim && make constant_time
 ```
 
-## Validación multi-semilla
+### Validación multi-semilla
 
 Todo el firmware C (nativo y en el core real) usó, hasta este punto,
 **una única semilla fija** en cada etapa — un riesgo real ya que la
@@ -1088,47 +1115,86 @@ gcc -o test_ml_kem_multiseed_native test_ml_kem_multiseed_native.c \
 cd ../../../sim && make ml_kem_multiseed_firmware
 ```
 
-### SampleNTT (muestreo por rechazo, generación de la matriz A)
+## Estado consolidado de la Fase 5 (cierre)
 
-`sw/lib/sample_ntt.c` — Algorithm 1 de FIPS 203 ("Parse"): consume
-bytes de un XOF (SHAKE128) de a 3 en 3, produce hasta 2 candidatos de 12
-bits por iteración, **rechaza** los que caen en `[q, 4096)` para
-garantizar muestreo sin sesgo (4096 no es múltiplo de `q=3329`, así que
-tomar 12 bits directos introduciría sesgo). Pieza identificada como
-faltante al planear el algoritmo completo de generación de claves — no
-estaba prevista en el plan original de "solo ensamblar las piezas ya
-construidas".
+| Componente | Estado |
+|---|---|
+| Macros de ensamblador, Keccak/SHA3/SHAKE, CBD, pack, SampleNTT | ✅ |
+| Protocolo completo en Python (`kyber_ref.py`) | ✅ 96/96 vs. `kyber-py`, 110/110 vs. NIST ACVP |
+| K-PKE.KeyGen / Encrypt / Decrypt en C | ✅ En el core real |
+| ML-KEM (keygen/encaps/decaps) escalar, en C | ✅ En el core real, 48.1M ciclos |
+| ML-KEM acelerado (vectorial), en C+asm | ✅ En el core real, 31.5M ciclos — speedup ~1.53× |
+| Validación contra NIST ACVP oficial | ✅ 110/110 (incluye rechazo implícito de NIST) |
+| Constant-time a nivel de ciclos | ✅ Confirmado en las 6 instrucciones de cómputo |
+| Validación multi-semilla (nativo + core real) | ✅ 5 nativas + 2 en el core real |
 
-Algoritmo idéntico a `kyber_py.PolynomialRing.ntt_sample()`, agregado al
-modelo de referencia y verificado contra `kyber-py` usando SHAKE128
-**real** (no datos sintéticos) como fuente de bytes — 50/50 casos, cada
-uno con una semilla aleatoria distinta pasada por `hashlib.shake_128`.
+La Fase 5 cierra con el objetivo central cumplido: **el protocolo
+ML-KEM-512 completo, criptográficamente correcto en cada capa de
+verificación disponible (modelo propio vs. `kyber-py`, modelo propio
+vs. NIST ACVP, C nativo vs. modelo, C en el core real vs. C nativo,
+múltiples semillas, constant-time), corriendo de punta a punta en el
+core RISC-V diseñado en este proyecto — tanto en su versión de
+referencia escalar como en su versión acelerada por las 8 instrucciones
+vectoriales de la Fase 4**, con el speedup real medido y explicado.
 
-**Buffer de tamaño fijo con fallo explícito**: a diferencia de una
-implementación con XOF verdaderamente extensible, se usa un buffer fijo
-de 840 bytes (5 bloques de SHAKE128), generosamente por encima del
-tamaño esperado (~472 bytes, dado que `P(rechazo)≈18.7%` por candidato).
-Si el buffer se agotara (evento de probabilidad extremadamente baja pero
-no nula), la función retorna un código de fallo explícito en vez de
-producir silenciosamente un polinomio incompleto — mismo principio de
-"fallar ruidosamente antes que dar un resultado incorrecto" aplicado en
-todo el proyecto.
+## Resumen de hallazgos técnicos (bugs reales encontrados y corregidos)
 
-Sin operador `%` genérico (`% 16` y `/ 16` se resuelven con AND/shift,
-ya que 16 es potencia de 2) — completamente autocontenido, sin
-dependencias externas, igual que Keccak y CBD.
+Listado centralizado, en orden cronológico, de cada bug real
+encontrado durante el proyecto — útil como referencia rápida para la
+documentación final (Fase 6) sin tener que releer el detalle completo
+de cada sección. "Real" excluye errores de transcripción en scripts de
+prueba propios (esos se documentan igual en su sección, pero no
+figuran acá porque no reflejan un defecto del diseño/RTL/firmware de
+producción).
 
-**Validado en tres capas**, con una particularidad: el firmware de la
-capa 3 combina **dos** piezas de software por primera vez (`keccak.c` +
-`sample_ntt.c`, ya que `sample_ntt` necesita bytes reales de SHAKE128 —
-un primer paso hacia el firmware completo de keygen). Falló inicialmente
-por límite de ciclos insuficiente en el testbench (`shake128` con 840
-bytes de salida necesita ~6 permutaciones Keccak completas, no 1-2 como
-en las pruebas anteriores de Keccak/CBD) — no un bug de RTL ni de C,
-corregido ajustando el presupuesto de ciclos del testbench. Resultado
-final: 256/256 coeficientes correctos, en el ciclo 317307.
+1. **`dmem` nunca se inicializaba con `.rodata`** (Fase 5, Keccak) —
+   arquitectura Harvard con linker script que asumía memoria unificada;
+   constantes de 64 bits que el compilador no podía construir inline
+   caían en `.rodata`, leído por `dmem`, que arrancaba siempre en cero.
+   Corregido agregando `INIT_FILE` a `dmem.sv` (ya existía en `imem.sv`).
 
-**Comandos:**
-```bash
-cd sim && make sample_ntt_firmware
-```
+2. **Bug de codegen del compilador cruzado (`riscv64-unknown-elf-gcc`
+   -O1/-O2)** (Fase 5, `k_pke_keygen.c`) — un producto matriz-vector
+   dentro de un acumulador anidado sobre arrays 3D grandes producía
+   resultados incorrectos con optimización, pero correctos con `-O0` y
+   con el mismo código compilado nativamente. No se persiguió la causa
+   raíz dentro de GCC (fuera del alcance del proyecto); se documentó
+   como limitación conocida del toolchain, resuelta compilando ese
+   firmware con `-O0` (costo medido: ~2.7× más ciclos).
+
+3. **Race condition memoria/escalar tras `vstore`** (Fase 5, firmware
+   acelerado) — el desacople del pipeline (Apéndice A.1) funciona
+   exactamente como fue diseñado: una instrucción vectorial que
+   *despacha* no implica que haya *terminado*. Código escalar que lee
+   la memoria de destino de un `vstore` inmediatamente después (p. ej.
+   un `ret` seguido de una lectura en C) puede leer datos incompletos,
+   porque el scoreboard de la Fase 4 protege registros vectoriales, no
+   memoria. No es un bug de RTL — es una limitación de diseño no
+   documentada hasta este punto. Resuelto en software: un `vload` de
+   sincronización antes de cada `ret` en `poly_vector_ops.S`, reusando
+   el mecanismo de recurso único ya existente.
+
+4. **`vector_unit.sv` leía el registro vectorial equivocado en
+   `vstore`** (Fase 5, firmware acelerado) — único bug real de RTL del
+   proyecto. El mux de selección de registro fuente usaba `vreg_rs1`
+   (bits del registro *escalar* de dirección) en vez de `vreg_rd` (el
+   campo donde el encoding realmente codifica el registro vectorial
+   fuente para `vstore`, según el diseño documentado desde la Fase 3).
+   Nunca se detectó en la Fase 4 porque el testbench de esa unidad
+   (`tb_vector_unit.cpp`) tenía la misma premisa incorrecta, así que
+   bug y test se cancelaban mutuamente. Corregido con 2 líneas, en 2
+   archivos (`vector_unit.sv` y `tb_vector_unit.cpp`), con regresión
+   completa de los 14 testbenches vectoriales confirmando cero impacto
+   colateral.
+
+**Patrón común a los 4 hallazgos**: ninguno se detectó por inspección
+de código — los 4 emergieron únicamente al ejercitar integración real
+(firmware completo compilado corriendo en el core, no señales
+simuladas a mano ni unidades aisladas), y los 4 se diagnosticaron con
+el mismo método de aislamiento progresivo (reducir el caso que falla a
+su forma más pequeña posible, verificando cada paso intermedio contra
+un oráculo de referencia). Esto confirma, en retrospectiva, el valor
+del criterio de cierre de fase del cronograma original: *"cada fase se
+cierra solo cuando sus pruebas pasan"* — un test unitario en verde no
+es evidencia suficiente de que el sistema integrado se comporta
+correctamente.
