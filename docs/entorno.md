@@ -1049,6 +1049,45 @@ el número de ciclos ni el camino tomado.
 cd sim && make constant_time
 ```
 
+## Validación multi-semilla
+
+Todo el firmware C (nativo y en el core real) usó, hasta este punto,
+**una única semilla fija** en cada etapa — un riesgo real ya que la
+Fase 5 encontró bugs reales (`vector_unit.sv` leyendo el registro
+vectorial equivocado en `vstore`) que precisamente se ocultaban con
+combinaciones específicas de registros/datos. Este cierre valida que
+la corrección observada no dependía, por coincidencia, de esa semilla
+particular.
+
+**Nativo** (`sw/tests/native/test_ml_kem_multiseed_native.c`,
+vectores generados por `models/gen_ml_kem_multiseed_test_vectors.py`):
+5 semillas distintas, cada una ejercitando el ciclo completo
+`keygen→encaps→decaps` (normal y con rechazo implícito) — **30/30
+verificaciones correctas**.
+
+**En el core real** (`sw/tests/test_ml_kem_multiseed_firmware.c`,
+versión **acelerada** — la más reciente y la que tuvo el bug de RTL):
+2 semillas adicionales, corridas en un solo firmware sobre
+`core_top_pipelined.sv`. El primer intento reveló una discrepancia
+puramente de bookkeeping del propio script de prueba (el generador
+Python corrompía un byte distinto por semilla para el caso de rechazo
+implícito, pero el firmware C siempre corrompía el byte 0) — corregido
+alineando ambos, sin ningún cambio de RTL ni de firmware de producción.
+**4/4 verificaciones correctas** (`K` y `K_rechazo` para ambas
+semillas), en 63,016,557 ciclos (~9 segundos reales de simulación).
+
+**Comandos:**
+```bash
+cd sw/tests/native
+gcc -o test_ml_kem_multiseed_native test_ml_kem_multiseed_native.c \
+    ../../lib/ml_kem.c ../../lib/k_pke_keygen.c ../../lib/k_pke_encrypt.c ../../lib/k_pke_decrypt.c \
+    ../../lib/keccak.c ../../lib/cbd.c ../../lib/sample_ntt.c ../../lib/poly_ntt.c \
+    ../../lib/pack.c ../../lib/mlkem_common.c -I../../lib
+./test_ml_kem_multiseed_native
+
+cd ../../../sim && make ml_kem_multiseed_firmware
+```
+
 ### SampleNTT (muestreo por rechazo, generación de la matriz A)
 
 `sw/lib/sample_ntt.c` — Algorithm 1 de FIPS 203 ("Parse"): consume
