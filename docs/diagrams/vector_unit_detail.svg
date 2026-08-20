@@ -1,0 +1,180 @@
+<svg viewBox="0 0 1500 1050" xmlns="http://www.w3.org/2000/svg" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <marker id="arrow2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#333"/>
+    </marker>
+    <marker id="arrow2_ctrl" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#e65100"/>
+    </marker>
+    <marker id="arrow2_mem" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#4527a0"/>
+    </marker>
+  </defs>
+
+  <rect width="1500" height="1050" fill="#fafafa"/>
+
+  <text x="750" y="35" text-anchor="middle" font-size="24" font-weight="bold" fill="#222">
+    Unidad Vectorial — Detalle Interno (Fase 4)
+  </text>
+  <text x="750" y="58" text-anchor="middle" font-size="13" fill="#666">
+    Decodificación (vector_control.sv) → despacho → 5 motores → vreg_file compartido → dmem (puerto 2)
+  </text>
+
+  <!-- vector_control.sv -->
+  <rect x="40" y="100" width="280" height="230" fill="#fff" stroke="#6a1b9a" stroke-width="1.8" rx="6"/>
+  <text x="180" y="125" text-anchor="middle" font-size="15" font-weight="bold" fill="#4a0e6b">vector_control.sv</text>
+  <text x="180" y="142" text-anchor="middle" font-size="9" fill="#666">vive en EX (no en ID)</text>
+
+  <text x="60" y="170" font-size="11">idex_opcode, idex_funct3</text>
+  <text x="60" y="188" font-size="11">idex_rs1[1:0], idex_rs2[1:0], idex_rd[1:0]</text>
+  <text x="60" y="206" font-size="11">ex_rs1_fwd (dirección escalar ya forwardeada)</text>
+
+  <line x1="60" y1="220" x2="300" y2="220" stroke="#ccc"/>
+
+  <text x="60" y="245" font-size="11" font-weight="bold">is_vector_instr</text>
+  <text x="230" y="245" font-size="9" fill="#666">= opcode==custom-0</text>
+  <text x="60" y="268" font-size="11" font-weight="bold">vec_start</text>
+  <text x="230" y="268" font-size="9" fill="#666">= is_vec &amp;&amp; !busy</text>
+  <text x="60" y="291" font-size="11" font-weight="bold">vec_funct3, vec_vreg_rs1/rs2/rd</text>
+  <text x="60" y="312" font-size="11" font-weight="bold">vec_scalar_addr = ex_rs1_fwd</text>
+
+  <!-- vector_scoreboard -->
+  <rect x="380" y="100" width="260" height="150" fill="#fff" stroke="#6a1b9a" stroke-width="1.8" rx="6"/>
+  <text x="510" y="125" text-anchor="middle" font-size="15" font-weight="bold" fill="#4a0e6b">vector_scoreboard.sv</text>
+  <text x="510" y="145" text-anchor="middle" font-size="9" fill="#666">4 bits, uno por v0-v3</text>
+  <text x="400" y="175" font-size="10">set_pulse / set_vreg → al DESPACHAR</text>
+  <text x="400" y="195" font-size="10">clear / clear_vreg → al completar (done)</text>
+  <text x="400" y="220" font-size="10" fill="#c00">Nota: redundante con el gateo de</text>
+  <text x="400" y="235" font-size="10" fill="#c00">recurso único bajo el diseño actual (A.4)</text>
+
+  <line x1="320" y1="215" x2="380" y2="175" stroke="#333" stroke-width="1.3" marker-end="url(#arrow2)"/>
+
+  <!-- vector_unit.sv outer box -->
+  <rect x="40" y="380" width="1420" height="600" fill="#f3e5f5" stroke="#6a1b9a" stroke-width="2" rx="8"/>
+  <text x="750" y="408" text-anchor="middle" font-size="17" font-weight="bold" fill="#4a0e6b">vector_unit.sv</text>
+  <text x="750" y="425" text-anchor="middle" font-size="10" fill="#666">recurso único no pipelineado (Apéndice A.4) — exactamente 1 motor activo a la vez</text>
+
+  <line x1="180" y1="330" x2="180" y2="380" stroke="#333" stroke-width="1.5" marker-end="url(#arrow2)"/>
+  <text x="195" y="360" font-size="9" fill="#666">funct3, start, vreg_rs1/rs2/rd, scalar_addr</text>
+
+  <!-- Dispatch mux -->
+  <rect x="90" y="450" width="200" height="90" fill="#e8eaf6" stroke="#3949ab" stroke-width="1.5" rx="4"/>
+  <text x="190" y="475" text-anchor="middle" font-size="12" font-weight="bold" fill="#1a237e">Mux de despacho</text>
+  <text x="190" y="493" text-anchor="middle" font-size="9" fill="#333">start_ntt / start_vpmul /</text>
+  <text x="190" y="507" text-anchor="middle" font-size="9" fill="#333">start_addsub / start_barrett /</text>
+  <text x="190" y="521" text-anchor="middle" font-size="9" fill="#333">start_loadstore</text>
+  <text x="190" y="535" text-anchor="middle" font-size="8" fill="#666">= gated_start &amp;&amp; (funct3==OP_X)</text>
+
+  <!-- 5 engines -->
+  <rect x="330" y="450" width="190" height="90" fill="#fff" stroke="#6a1b9a" stroke-width="1.4" rx="4"/>
+  <text x="425" y="473" text-anchor="middle" font-size="12" font-weight="bold">ntt_engine</text>
+  <text x="425" y="490" text-anchor="middle" font-size="9" fill="#555">vntt (Cooley-Tukey)</text>
+  <text x="425" y="504" text-anchor="middle" font-size="9" fill="#555">vintt (Gentleman-Sande)</text>
+  <text x="425" y="520" text-anchor="middle" font-size="9" fill="#c00">1153 / 1409 ciclos</text>
+
+  <rect x="550" y="450" width="190" height="90" fill="#fff" stroke="#6a1b9a" stroke-width="1.4" rx="4"/>
+  <text x="645" y="473" text-anchor="middle" font-size="12" font-weight="bold">vpmul_engine</text>
+  <text x="645" y="490" text-anchor="middle" font-size="9" fill="#555">64× base_case_mul</text>
+  <text x="645" y="504" text-anchor="middle" font-size="9" fill="#555">(grado-1, con twiddle ζ/Q-ζ)</text>
+  <text x="645" y="520" text-anchor="middle" font-size="9" fill="#c00">257 ciclos</text>
+
+  <rect x="770" y="450" width="190" height="90" fill="#fff" stroke="#6a1b9a" stroke-width="1.4" rx="4"/>
+  <text x="865" y="473" text-anchor="middle" font-size="12" font-weight="bold">addsub_engine</text>
+  <text x="865" y="490" text-anchor="middle" font-size="9" fill="#555">vadd / vsub</text>
+  <text x="865" y="504" text-anchor="middle" font-size="9" fill="#555">256× poly_addsub</text>
+  <text x="865" y="520" text-anchor="middle" font-size="9" fill="#c00">257 ciclos</text>
+
+  <rect x="990" y="450" width="190" height="90" fill="#fff" stroke="#6a1b9a" stroke-width="1.4" rx="4"/>
+  <text x="1085" y="473" text-anchor="middle" font-size="12" font-weight="bold">barrett_engine</text>
+  <text x="1085" y="490" text-anchor="middle" font-size="9" fill="#555">vbarrett</text>
+  <text x="1085" y="504" text-anchor="middle" font-size="9" fill="#555">256× barrett_reduce</text>
+  <text x="1085" y="520" text-anchor="middle" font-size="9" fill="#c00">257 ciclos</text>
+
+  <rect x="1210" y="450" width="220" height="90" fill="#fff" stroke="#6a1b9a" stroke-width="1.4" rx="4"/>
+  <text x="1320" y="473" text-anchor="middle" font-size="12" font-weight="bold">vload_vstore_engine</text>
+  <text x="1320" y="490" text-anchor="middle" font-size="9" fill="#555">vload / vstore</text>
+  <text x="1320" y="504" text-anchor="middle" font-size="9" fill="#555">.vreg = vreg_rd (¡ambos casos!)</text>
+  <text x="1320" y="520" text-anchor="middle" font-size="9" fill="#c00">257 ciclos</text>
+
+  <line x1="290" y1="495" x2="330" y2="495" stroke="#333" stroke-width="1.3" marker-end="url(#arrow2)"/>
+  <line x1="290" y1="490" x2="550" y2="450" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
+  <line x1="290" y1="490" x2="770" y2="450" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
+  <line x1="290" y1="490" x2="990" y2="450" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
+  <line x1="290" y1="490" x2="1210" y2="480" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
+
+  <!-- bug callout -->
+  <rect x="1210" y="550" width="220" height="66" fill="#fff3e0" stroke="#e65100" stroke-width="1.3" rx="4"/>
+  <text x="1320" y="568" text-anchor="middle" font-size="9" font-weight="bold" fill="#c9500a">Hallazgo #4 (Fase 5)</text>
+  <text x="1320" y="583" text-anchor="middle" font-size="8" fill="#7a3b0a">antes: .vreg = (VSTORE ? vreg_rs1</text>
+  <text x="1320" y="596" text-anchor="middle" font-size="8" fill="#7a3b0a">: vreg_rd) — leía el vreg equivocado</text>
+  <text x="1320" y="609" text-anchor="middle" font-size="8" fill="#7a3b0a">en vstore. Corregido: siempre vreg_rd.</text>
+
+  <!-- any_busy / done OR -->
+  <rect x="550" y="570" width="410" height="50" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.4" rx="4"/>
+  <text x="755" y="590" text-anchor="middle" font-size="11" font-weight="bold" fill="#1b5e20">any_busy = OR(ntt_busy, vpmul_busy, addsub_busy, barrett_busy, loadstore_busy)</text>
+  <text x="755" y="608" text-anchor="middle" font-size="11" font-weight="bold" fill="#1b5e20">done = OR(...done de cada motor)</text>
+
+  <line x1="425" y1="540" x2="650" y2="570" stroke="#2e7d32" stroke-width="1" stroke-dasharray="2,2"/>
+  <line x1="645" y1="540" x2="700" y2="570" stroke="#2e7d32" stroke-width="1" stroke-dasharray="2,2"/>
+  <line x1="865" y1="540" x2="800" y2="570" stroke="#2e7d32" stroke-width="1" stroke-dasharray="2,2"/>
+  <line x1="1085" y1="540" x2="850" y2="570" stroke="#2e7d32" stroke-width="1" stroke-dasharray="2,2"/>
+
+  <!-- vreg_file shared -->
+  <rect x="90" y="680" width="600" height="130" fill="#fff" stroke="#6a1b9a" stroke-width="1.8" stroke-dasharray="4,3" rx="6"/>
+  <text x="390" y="705" text-anchor="middle" font-size="14" font-weight="bold">vreg_file.sv (compartido, mux de puertos)</text>
+  <text x="390" y="723" text-anchor="middle" font-size="10" fill="#555">v0–v3, 128 palabras × 32 bits cada uno (256 coef. de 16b)</text>
+  <text x="120" y="750" font-size="10">raddr1/rdata1 · raddr2/rdata2</text>
+  <text x="120" y="768" font-size="10">waddr1/wdata1/we1 · waddr2/wdata2/we2</text>
+  <text x="120" y="792" font-size="9" fill="#666" font-style="italic">mux_raddr/waddr seleccionado según qué motor está activo (case funct3)</text>
+
+  <line x1="425" y1="540" x2="300" y2="680" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
+  <line x1="645" y1="540" x2="400" y2="680" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
+  <line x1="865" y1="540" x2="500" y2="680" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
+  <line x1="1085" y1="540" x2="580" y2="680" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
+  <line x1="1320" y1="540" x2="640" y2="680" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
+
+  <!-- twiddle_rom shared -->
+  <rect x="720" y="680" width="280" height="130" fill="#fff" stroke="#6a1b9a" stroke-width="1.8" stroke-dasharray="4,3" rx="6"/>
+  <text x="860" y="705" text-anchor="middle" font-size="14" font-weight="bold">twiddle_rom.sv</text>
+  <text x="860" y="725" text-anchor="middle" font-size="10" fill="#555">128 valores ζ (root of unity = 17)</text>
+  <text x="860" y="745" text-anchor="middle" font-size="10" fill="#555">Solo lectura, compartida NTT + vpmul</text>
+  <text x="860" y="770" text-anchor="middle" font-size="9" fill="#666" font-style="italic">misma fuente que sw/lib/poly_ntt_constants.h</text>
+  <text x="860" y="788" text-anchor="middle" font-size="9" fill="#666" font-style="italic">(nunca transcrita 2 veces — Fase 5)</text>
+
+  <line x1="425" y1="540" x2="800" y2="680" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
+  <line x1="645" y1="540" x2="900" y2="680" stroke="#333" stroke-width="1" stroke-dasharray="2,2"/>
+
+  <!-- dmem port2 -->
+  <rect x="1060" y="680" width="300" height="130" fill="#ede7f6" stroke="#4527a0" stroke-width="1.8" rx="6"/>
+  <text x="1210" y="705" text-anchor="middle" font-size="14" font-weight="bold" fill="#311b92">dmem.sv — puerto 2</text>
+  <text x="1210" y="725" text-anchor="middle" font-size="10" fill="#555">ls_dmem_addr / ls_dmem_wdata</text>
+  <text x="1210" y="742" text-anchor="middle" font-size="10" fill="#555">ls_dmem_mem_read / mem_write</text>
+  <text x="1210" y="759" text-anchor="middle" font-size="10" fill="#555">funct3=101 (lhu) para lectura</text>
+  <text x="1210" y="783" text-anchor="middle" font-size="9" fill="#c00" font-weight="bold">Hallazgo #3: el scoreboard NO</text>
+  <text x="1210" y="797" text-anchor="middle" font-size="9" fill="#c00" font-weight="bold">protege esta memoria (solo v0-v3)</text>
+
+  <line x1="1320" y1="540" x2="1210" y2="680" stroke="#4527a0" stroke-width="1.3" marker-end="url(#arrow2_mem)"/>
+
+  <!-- Bottom note -->
+  <rect x="90" y="850" width="1270" height="100" fill="#fffde7" stroke="#b8860b" stroke-width="1.3" rx="6"/>
+  <text x="725" y="875" text-anchor="middle" font-size="12" font-weight="bold" fill="#7a5c00">Desacople (Apéndice A.1)</text>
+  <text x="725" y="895" text-anchor="middle" font-size="10" fill="#333">
+    "done" señaliza a vector_control (no bloquea el pipeline escalar mientras el motor procesa) — el pipeline
+  </text>
+  <text x="725" y="912" text-anchor="middle" font-size="10" fill="#333">
+    avanza con instrucciones independientes en paralelo. Una NUEVA instrucción vectorial se stallea automáticamente
+  </text>
+  <text x="725" y="929" text-anchor="middle" font-size="10" fill="#333">
+    (vector_stall = is_vector_instr &amp;&amp; vector_unit_busy) hasta que la anterior libere el recurso único.
+  </text>
+
+  <!-- Legend -->
+  <rect x="40" y="990" width="16" height="10" fill="#333"/>
+  <text x="62" y="999" font-size="10">señal de control</text>
+  <rect x="230" y="990" width="16" height="10" fill="#4527a0"/>
+  <text x="252" y="999" font-size="10">acceso a memoria (puerto 2)</text>
+  <rect x="470" y="990" width="16" height="10" fill="#e65100"/>
+  <text x="492" y="999" font-size="10">hallazgo / bug documentado</text>
+  <line x1="700" y1="995" x2="730" y2="995" stroke="#333" stroke-dasharray="2,2"/>
+  <text x="740" y="999" font-size="10">conexión a recurso compartido</text>
+</svg>
