@@ -1014,6 +1014,41 @@ terceros de la misma.
 cd models && python3 test_nist_acvp.py
 ```
 
+## Verificación constant-time a nivel de ciclos
+
+Pendiente explícito de la Fase 4 (*"Verificación de constant-time: el
+número de ciclos de cada instrucción custom es independiente del valor
+de los datos de entrada, no solo de su tamaño"*), cerrado acá con
+`tb/tb_constant_time.cpp`.
+
+El testbench instancia `vector_unit.sv` directamente (mismo patrón que
+`tb_vector_unit.cpp`) y mide el número **exacto** de ciclos entre
+`start=1` y `done=1` para cada una de las 6 instrucciones de cómputo
+(`vntt`, `vintt`, `vpmul`, `vadd`, `vsub`, `vbarrett`), con tres
+conjuntos de datos deliberadamente muy distintos:
+
+- **ZERO** — los 256 coeficientes en 0
+- **MAX** — los 256 coeficientes en `q-1=3328` (el valor más alto
+  válido en el dominio `[0,q)`; `0xFFFF` crudo para `vbarrett`, que
+  opera sobre datos sin reducir)
+- **RANDOM** — los mismos vectores de prueba realistas de Kyber ya
+  usados en `tb_vector_unit.cpp`
+
+**Resultado: los tres conteos de ciclos coinciden exactamente para las
+6 instrucciones** — `vntt`=1153, `vintt`=1409, `vpmul`=`vadd`=`vsub`=
+`vbarrett`=257 ciclos, sin ninguna variación entre datasets. Confirma
+en la práctica el principio de diseño de la Fase 3
+(`isa_vectorial_kyber.docx` sección 4.2): la corrección condicional de
+Barrett se implementa como selección aritmética (máscara), nunca como
+bifurcación de control, así que el hardware siempre ejecuta la misma
+cantidad de trabajo — solo el resultado final cambia según el dato, no
+el número de ciclos ni el camino tomado.
+
+**Comandos:**
+```bash
+cd sim && make constant_time
+```
+
 ### SampleNTT (muestreo por rechazo, generación de la matriz A)
 
 `sw/lib/sample_ntt.c` — Algorithm 1 de FIPS 203 ("Parse"): consume
