@@ -1,0 +1,148 @@
+<svg viewBox="0 0 1500 900" xmlns="http://www.w3.org/2000/svg" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <marker id="a5" markerWidth="8" markerHeight="8" refX="6" refY="2.5" orient="auto">
+      <path d="M0,0 L0,5 L7,2.5 z" fill="#333"/>
+    </marker>
+  </defs>
+  <rect width="1500" height="900" fill="#fafafa"/>
+
+  <text x="750" y="32" text-anchor="middle" font-size="21" font-weight="bold" fill="#222">
+    Waveform anotada — Desacople (A.1) y Serialización (A.4)
+  </text>
+  <text x="750" y="53" text-anchor="middle" font-size="12" fill="#666">
+    Datos EXACTOS extraídos de core_top_pipelined.sv corriendo mixed_scalar_vector.hex (tb_core_top_pipelined_vector.cpp) — no estimados
+  </text>
+  <text x="750" y="70" text-anchor="middle" font-size="10" fill="#888" font-style="italic">
+    Programa: vntt v1,v0 · 5×(addi x2,x2,1) · sw x2,0x100(x0) · vbarrett v1,v1 · addi x3,x0,99 · sw x3,0x104(x0)
+  </text>
+
+  <!-- ============ PANEL A: ciclos 0-16 ============ -->
+  <text x="60" y="105" font-size="14" font-weight="bold" fill="#4a0e6b">Panel A — ciclos 0–16: despacho de vntt + desacople del pipeline escalar</text>
+
+  <!-- grid -->
+  <g id="panelA">
+    <!-- x axis: ciclo 0 to 16, scale 80px/cycle starting x=100 -->
+    <!-- Row labels -->
+    <text x="30" y="140" font-size="11" font-weight="bold">is_vec</text>
+    <text x="30" y="180" font-size="11" font-weight="bold">gated_start</text>
+    <text x="30" y="220" font-size="11" font-weight="bold">vector_busy</text>
+    <text x="30" y="270" font-size="11" font-weight="bold">x2 (escalar)</text>
+    <text x="30" y="310" font-size="11" font-weight="bold">dmem[0x100]</text>
+
+    <!-- signal: is_vector_instr: 0,0,0,1(c3),0(c4-9),1(c10-15...) -->
+    <!-- using step waveform: high segments at c3, and c10-15 -->
+    <path d="M 100 130 L 340 130 L 340 115 L 420 115 L 420 130 L 500 130 L 500 115 L 1300 115" fill="none" stroke="#1565c0" stroke-width="2"/>
+    <!-- gated_start: pulse at c3 only -->
+    <path d="M 100 170 L 340 170 L 340 155 L 420 155 L 420 170 L 1300 170" fill="none" stroke="#e65100" stroke-width="2"/>
+    <!-- vector_busy: 0 until c4, then 1 -->
+    <path d="M 100 225 L 420 225 L 420 210 L 1300 210" fill="none" stroke="#6a1b9a" stroke-width="2.5"/>
+
+    <!-- x2 staircase: 0 (c0-6), 1(c7),2(c8),3(c9),4(c10),5(c11+) -->
+    <path d="M 100 280 L 660 280 L 660 268 L 740 268 L 740 256 L 820 256 L 820 244 L 900 244 L 900 232 L 980 232 L 980 220 L 1300 220" fill="none" stroke="#2e7d32" stroke-width="2"/>
+    <text x="700" y="295" font-size="9" fill="#2e7d32">x2 sigue incrementando (5×addi) MIENTRAS vntt está busy=1</text>
+
+    <!-- dmem canario: 0 until c11 then 5 -->
+    <path d="M 100 320 L 980 320 L 980 300 L 1300 300" fill="none" stroke="#c62828" stroke-width="2.5"/>
+    <circle cx="980" cy="300" r="5" fill="#c62828"/>
+    <text x="995" y="298" font-size="10" fill="#c62828" font-weight="bold">canario=5 en ciclo 11</text>
+
+    <!-- vertical gridlines + cycle labels every 2 -->
+    <g stroke="#ddd" stroke-width="1">
+      <line x1="100" y1="115" x2="100" y2="330"/>
+      <line x1="260" y1="115" x2="260" y2="330"/>
+      <line x1="420" y1="115" x2="420" y2="330"/>
+      <line x1="580" y1="115" x2="580" y2="330"/>
+      <line x1="740" y1="115" x2="740" y2="330"/>
+      <line x1="900" y1="115" x2="900" y2="330"/>
+      <line x1="1060" y1="115" x2="1060" y2="330"/>
+      <line x1="1220" y1="115" x2="1220" y2="330"/>
+    </g>
+    <g font-size="9" fill="#888">
+      <text x="100" y="345">c0</text>
+      <text x="260" y="345">c2</text>
+      <text x="420" y="345">c3-4</text>
+      <text x="580" y="345">c6</text>
+      <text x="740" y="345">c8</text>
+      <text x="900" y="345">c10</text>
+      <text x="1060" y="345">c11-12</text>
+      <text x="1220" y="345">c14</text>
+    </g>
+
+    <!-- annotation: dispatch -->
+    <text x="440" y="148" font-size="10" fill="#e65100" font-weight="bold">← vntt despacha (c3), busy=1 desde c4</text>
+  </g>
+
+  <!-- ============ PANEL B: ciclos 1150-1420 ============ -->
+  <text x="60" y="420" font-size="14" font-weight="bold" fill="#4a0e6b">Panel B — ciclos 1150–1420: fin de vntt, despacho de vbarrett, segundo canario, fin de vbarrett</text>
+  <text x="60" y="438" font-size="10" fill="#888" font-style="italic">(~1140 ciclos omitidos entre paneles — vector_busy=1 sin cambios, vntt sigue corriendo sus 7 niveles)</text>
+
+  <g id="panelB">
+    <text x="30" y="470" font-size="11" font-weight="bold">gated_start</text>
+    <text x="30" y="510" font-size="11" font-weight="bold">vector_busy</text>
+    <text x="30" y="560" font-size="11" font-weight="bold">dmem[0x104]</text>
+
+    <!-- ciclos 1150 a 1420, scale ~4.8px/cycle, x=100 to 1400 (270 cycles -> 1300px) -->
+    <!-- gated_start: pulse at c1157 -->
+    <path d="M 100 460 L 230 460 L 230 445 L 260 445 L 260 460 L 1300 460" fill="none" stroke="#e65100" stroke-width="2"/>
+    <!-- vector_busy: 1 until c1157, gap, 1 from c1158 to c1415, then 0 -->
+    <path d="M 100 500 L 230 500 L 230 515 L 245 515 L 245 500 L 1247 500 L 1247 515 L 1300 515" fill="none" stroke="#6a1b9a" stroke-width="2.5"/>
+    <text x="255" y="530" font-size="9" fill="#6a1b9a">hueco de 1 ciclo — sin holgura (serialización, A.4)</text>
+
+    <!-- dmem canario 2: 0 until c1161 then 99 -->
+    <path d="M 100 570 L 270 570 L 270 550 L 1300 550" fill="none" stroke="#c62828" stroke-width="2.5"/>
+    <circle cx="270" cy="550" r="5" fill="#c62828"/>
+    <text x="285" y="548" font-size="10" fill="#c62828" font-weight="bold">canario 2=99 en ciclo 1161 (3 ciclos después del despacho de vbarrett, no de su fin)</text>
+
+    <g stroke="#ddd" stroke-width="1">
+      <line x1="100" y1="445" x2="100" y2="580"/>
+      <line x1="230" y1="445" x2="230" y2="580"/>
+      <line x1="450" y1="445" x2="450" y2="580"/>
+      <line x1="670" y1="445" x2="670" y2="580"/>
+      <line x1="890" y1="445" x2="890" y2="580"/>
+      <line x1="1110" y1="445" x2="1110" y2="580"/>
+      <line x1="1300" y1="445" x2="1300" y2="580"/>
+    </g>
+    <g font-size="9" fill="#888">
+      <text x="90" y="595">c1150</text>
+      <text x="215" y="595">c1157</text>
+      <text x="435" y="595">c1200</text>
+      <text x="655" y="595">c1250</text>
+      <text x="875" y="595">c1300</text>
+      <text x="1090" y="595">c1350</text>
+      <text x="1280" y="595">c1415</text>
+    </g>
+
+    <text x="265" y="475" font-size="10" fill="#e65100" font-weight="bold">← vntt termina Y vbarrett despacha, mismo ciclo (1157)</text>
+
+    <text x="750" y="618" text-anchor="middle" font-size="10" fill="#6a1b9a" font-weight="bold">vbarrett termina en c1415 — duración 257 ciclos, igual a la medición aislada de tb_constant_time.cpp</text>
+  </g>
+
+  <!-- Summary box -->
+  <rect x="60" y="650" width="1380" height="200" fill="#fffde7" stroke="#b8860b" stroke-width="1.3" rx="8"/>
+  <text x="750" y="678" text-anchor="middle" font-size="13" font-weight="bold" fill="#7a5c00">Qué confirma esta waveform (Fase 4, Apéndices A.1 y A.4)</text>
+
+  <text x="90" y="705" font-size="11" font-weight="bold" fill="#333">1. Desacople (A.1):</text>
+  <text x="90" y="722" font-size="10" fill="#333">
+    Entre el despacho de vntt (c3) y su fin (c1157), el pipeline escalar ejecutó 5 instrucciones "addi" + 1 "sw"
+  </text>
+  <text x="90" y="737" font-size="10" fill="#333">
+    completamente en PARALELO — el canario apareció en el ciclo 11, no en el 1157. El pipeline nunca esperó a vntt.
+  </text>
+
+  <text x="90" y="765" font-size="11" font-weight="bold" fill="#333">2. Serialización (A.4, recurso único):</text>
+  <text x="90" y="782" font-size="10" fill="#333">
+    vbarrett no pudo despachar hasta el ciclo 1157 — exactamente cuando vntt liberó la unidad (any_busy: 1→0→1
+  </text>
+  <text x="90" y="797" font-size="10" fill="#333">
+    en el mismo ciclo, sin hueco). No hay cola: una segunda instrucción vectorial siempre espera a la primera.
+  </text>
+
+  <text x="90" y="825" font-size="11" font-weight="bold" fill="#333">3. Desacople aplica también a la segunda instrucción:</text>
+  <text x="90" y="840" font-size="10" fill="#333">
+    El canario 2 (x3=99) apareció en el ciclo 1161 — 4 ciclos después del DESPACHO de vbarrett, mucho antes de sus 257 ciclos de duración.
+  </text>
+
+  <text x="750" y="875" text-anchor="middle" font-size="10" fill="#666" font-style="italic">
+    Reproducible con: cd sim &amp;&amp; make core_top_pipelined_vector
+  </text>
+</svg>
