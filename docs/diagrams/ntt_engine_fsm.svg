@@ -1,0 +1,111 @@
+<svg viewBox="0 0 1400 900" xmlns="http://www.w3.org/2000/svg" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <marker id="a3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#333"/>
+    </marker>
+    <marker id="a3_intt" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#1565c0"/>
+    </marker>
+    <marker id="a3_ntt" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#2e7d32"/>
+    </marker>
+  </defs>
+
+  <rect width="1400" height="900" fill="#fafafa"/>
+
+  <text x="700" y="35" text-anchor="middle" font-size="22" font-weight="bold" fill="#222">
+    FSM de ntt_engine.sv — vntt / vintt
+  </text>
+  <text x="700" y="56" text-anchor="middle" font-size="12" fill="#666">
+    logic [2:0] state — 5 estados. Verde = camino vntt, Azul = camino vintt (comparten IDLE/COPY/RUN/DONE_PULSE)
+  </text>
+
+  <!-- IDLE -->
+  <ellipse cx="150" cy="200" rx="90" ry="55" fill="#fff" stroke="#333" stroke-width="2"/>
+  <text x="150" y="195" text-anchor="middle" font-size="15" font-weight="bold">IDLE</text>
+  <text x="150" y="215" text-anchor="middle" font-size="10" fill="#666">busy=0</text>
+
+  <!-- COPY -->
+  <ellipse cx="420" cy="200" rx="100" ry="55" fill="#fff" stroke="#333" stroke-width="2"/>
+  <text x="420" y="190" text-anchor="middle" font-size="15" font-weight="bold">COPY</text>
+  <text x="420" y="207" text-anchor="middle" font-size="9" fill="#666">vreg_src → vreg_dst</text>
+  <text x="420" y="221" text-anchor="middle" font-size="9" fill="#666">copy_idx: 0..255</text>
+
+  <!-- RUN (big) -->
+  <rect x="600" y="330" width="440" height="360" fill="#fff" stroke="#333" stroke-width="2" rx="16"/>
+  <text x="820" y="360" text-anchor="middle" font-size="16" font-weight="bold">RUN</text>
+  <text x="820" y="378" text-anchor="middle" font-size="10" fill="#666">operación IN-PLACE sobre vreg_dst (7 niveles)</text>
+
+  <rect x="630" y="400" width="380" height="80" fill="#f5f5f5" stroke="#999" rx="6"/>
+  <text x="820" y="422" text-anchor="middle" font-size="11" font-weight="bold">bucle interno: j</text>
+  <text x="820" y="438" text-anchor="middle" font-size="9" fill="#555">j+1 &lt; start_idx+length → j++ (1 mariposa/ciclo)</text>
+  <text x="820" y="453" text-anchor="middle" font-size="9" fill="#555">butterfly_ct (vntt) / butterfly_gs (vintt), combinacional</text>
+  <text x="820" y="468" text-anchor="middle" font-size="9" fill="#555">lee/escribe vreg_dst[j] y vreg_dst[j+length]</text>
+
+  <rect x="630" y="490" width="380" height="60" fill="#f5f5f5" stroke="#999" rx="6"/>
+  <text x="820" y="512" text-anchor="middle" font-size="11" font-weight="bold">bucle medio: start_idx</text>
+  <text x="820" y="530" text-anchor="middle" font-size="9" fill="#555">bloque completo → k±1, start_idx += 2·length, j=start_idx</text>
+
+  <rect x="630" y="560" width="380" height="60" fill="#f5f5f5" stroke="#999" rx="6"/>
+  <text x="820" y="582" text-anchor="middle" font-size="11" font-weight="bold">bucle externo: length</text>
+  <text x="820" y="600" text-anchor="middle" font-size="9" fill="#555">nivel completo → length ×2 (INTT) ó ÷2 (NTT), start_idx=j=0</text>
+
+  <text x="820" y="650" text-anchor="middle" font-size="10" fill="#2e7d32" font-weight="bold">vntt: length 128→2 (÷2 c/nivel), k: 1→127</text>
+  <text x="820" y="668" text-anchor="middle" font-size="10" fill="#1565c0" font-weight="bold">vintt: length 2→128 (×2 c/nivel), k: 127→1</text>
+
+  <!-- SCALE -->
+  <ellipse cx="1200" cy="200" rx="100" ry="55" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+  <text x="1200" y="192" text-anchor="middle" font-size="15" font-weight="bold" fill="#0d3d78">SCALE</text>
+  <text x="1200" y="209" text-anchor="middle" font-size="9" fill="#0d3d78">×INV128 (Barrett)</text>
+  <text x="1200" y="223" text-anchor="middle" font-size="9" fill="#0d3d78">scale_idx: 0..255</text>
+  <text x="1200" y="245" text-anchor="middle" font-size="8" fill="#1565c0">solo vintt</text>
+
+  <!-- DONE_PULSE -->
+  <ellipse cx="700" cy="800" rx="110" ry="55" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+  <text x="700" y="793" text-anchor="middle" font-size="15" font-weight="bold" fill="#1b5e20">DONE_PULSE</text>
+  <text x="700" y="812" text-anchor="middle" font-size="9" fill="#1b5e20">done=1 (1 ciclo), busy=0</text>
+
+  <!-- Transitions -->
+  <path d="M 240 200 L 320 200" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a3)"/>
+  <text x="280" y="190" text-anchor="middle" font-size="10">start</text>
+  <text x="280" y="225" text-anchor="middle" font-size="8" fill="#666">(latch mode/src/dst)</text>
+
+  <path d="M 420 145 C 420 100, 420 100, 420 145" fill="none" stroke="#333" stroke-width="1.3" marker-end="url(#a3)"/>
+  <ellipse cx="420" cy="120" rx="55" ry="18" fill="none" stroke="#333" stroke-width="1.2"/>
+  <text x="420" y="125" text-anchor="middle" font-size="9">copy_idx≠255</text>
+
+  <path d="M 500 220 C 560 260, 580 280, 600 330" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a3)"/>
+  <text x="590" y="270" font-size="10">copy_idx==255</text>
+
+  <!-- RUN -> SCALE (intt) -->
+  <path d="M 950 400 C 1050 350, 1120 280, 1180 255" fill="none" stroke="#1565c0" stroke-width="1.6" marker-end="url(#a3_intt)"/>
+  <text x="1000" y="330" font-size="9" fill="#1565c0">vintt &amp; length==128</text>
+  <text x="1000" y="343" font-size="9" fill="#1565c0">(7 niveles completos)</text>
+
+  <!-- SCALE -> DONE_PULSE -->
+  <path d="M 1150 250 C 950 500, 850 650, 760 760" fill="none" stroke="#1565c0" stroke-width="1.6" marker-end="url(#a3_intt)"/>
+  <text x="1010" y="530" font-size="9" fill="#1565c0">scale_idx==255</text>
+
+  <!-- SCALE self loop -->
+  <ellipse cx="1200" cy="130" rx="55" ry="16" fill="none" stroke="#1565c0" stroke-width="1.1"/>
+  <text x="1200" y="134" text-anchor="middle" font-size="8" fill="#1565c0">scale_idx≠255</text>
+  <path d="M 1200 146 L 1200 155" fill="none" stroke="#1565c0" stroke-width="1.1" marker-end="url(#a3_intt)"/>
+
+  <!-- RUN -> DONE_PULSE (ntt) -->
+  <path d="M 700 690 L 700 745" fill="none" stroke="#2e7d32" stroke-width="1.6" marker-end="url(#a3_ntt)"/>
+  <text x="720" y="720" font-size="9" fill="#2e7d32">vntt &amp; length==2</text>
+  <text x="720" y="733" font-size="9" fill="#2e7d32">(7 niveles completos)</text>
+
+  <!-- DONE_PULSE -> IDLE -->
+  <path d="M 590 800 C 300 800, 150 500, 150 255" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#a3)"/>
+  <text x="230" y="600" font-size="10">siempre (1 ciclo)</text>
+
+  <!-- Legend -->
+  <rect x="40" y="850" width="16" height="10" fill="#333"/>
+  <text x="62" y="859" font-size="10">transición común (ambos modos)</text>
+  <rect x="330" y="850" width="16" height="10" fill="#2e7d32"/>
+  <text x="352" y="859" font-size="10">solo vntt</text>
+  <rect x="470" y="850" width="16" height="10" fill="#1565c0"/>
+  <text x="492" y="859" font-size="10">solo vintt</text>
+  <text x="700" y="859" font-size="10" fill="#666">Duración total: 257 (COPY) + 896 (RUN, 7×128) + 0/256 (SCALE) ≈ 1153 / 1409 ciclos</text>
+</svg>
